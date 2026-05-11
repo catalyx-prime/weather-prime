@@ -24,6 +24,8 @@ if (typeof URLSearchParams === 'undefined') {
     };
 }
 
+// ── WMO weather code table ────────────────────────────────────────────────
+
 const WMO = {
     0:  {icon: '☀️',  desc: 'Clear sky'},
     1:  {icon: '🌤️', desc: 'Mainly clear'},
@@ -58,6 +60,8 @@ const WMO = {
 function wmo(code) {
     return WMO[code] ?? {icon: '🌡️', desc: 'Unknown'};
 }
+
+// ── Utility / formatting ──────────────────────────────────────────────────
 
 function pm25Level(v) {
     if (v == null) return {text: 'N/A', color: null};
@@ -109,11 +113,13 @@ function fmtWind(mph, dir, windUnit) {
 
 function fmtPressure(hpa, pressureUnit, trend = '') {
     if (hpa == null) return '--';
-    if (pressureUnit === 'inhg') return `${(hpa * 0.02953).toFixed(2)} inHg${trend}`;
-    if (pressureUnit === 'mmhg') return `${Math.round(hpa * 0.75006)} mmHg${trend}`;
-    return `${Math.round(hpa)} hPa${trend}`;
+    const pre = trend ? `${trend.trim()} ` : '';
+    if (pressureUnit === 'inhg') return `${pre}${(hpa * 0.02953).toFixed(2)} inHg`;
+    if (pressureUnit === 'mmhg') return `${pre}${Math.round(hpa * 0.75006)} mmHg`;
+    return `${pre}${Math.round(hpa)} hPa`;
 }
 
+// Compare pressure now vs 3 hours ago; threshold 2 hPa = meaningful change
 function pressureTrend(pressureArray, currentIdx) {
     if (!pressureArray || currentIdx < 3) return '';
     const curr = pressureArray[currentIdx];
@@ -137,6 +143,8 @@ function shortDay(s) {
     const d = new Date(s.length === 10 ? s + 'T12:00:00' : s);
     return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
 }
+
+// ── HTTP helper ───────────────────────────────────────────────────────────
 
 let _session = null;
 function getSession() {
@@ -162,6 +170,8 @@ function fetchJSON(url) {
         });
     });
 }
+
+// ── Open-Meteo ────────────────────────────────────────────────────────────
 
 function buildOpenMeteoUrl(lat, lon, unit) {
     const tu = unit === 'fahrenheit' ? 'fahrenheit' : 'celsius';
@@ -245,6 +255,8 @@ function parseOpenMeteo(data, aqData, windUnit, pressureUnit, unit) {
     };
 }
 
+// ── WeatherAPI.com ────────────────────────────────────────────────────────
+
 function fetchWeatherAPI(lat, lon, key) {
     const params = new URLSearchParams({
         key, q: `${lat},${lon}`, days: 7, aqi: 'no', alerts: 'no',
@@ -316,6 +328,8 @@ function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit) {
     };
 }
 
+// ── AirNow (US EPA, free with registration) ───────────────────────────────
+
 async function fetchAirNow(lat, lon, key) {
     if (!key) return null;
     try {
@@ -347,6 +361,8 @@ async function fetchAirNow(lat, lon, key) {
     }
 }
 
+// ── NWS weather alerts (US, free, no key) ────────────────────────────────
+
 async function fetchAlerts(lat, lon) {
     try {
         const data = await fetchJSON(
@@ -363,6 +379,8 @@ async function fetchAlerts(lat, lon) {
     }
 }
 
+// ── Reverse geocoding ─────────────────────────────────────────────────────
+
 async function reverseGeocode(lat, lon) {
     try {
         const params = new URLSearchParams({lat, lon, format: 'json', zoom: 10});
@@ -375,6 +393,8 @@ async function reverseGeocode(lat, lon) {
         return 'Current location';
     }
 }
+
+// ── St widget helpers ─────────────────────────────────────────────────────
 
 function label(text, styleClass = '') {
     return new St.Label({text: String(text), style_class: styleClass});
@@ -392,6 +412,8 @@ function spacer() {
     return new St.Widget({x_expand: true});
 }
 
+// ── WeatherPanel ──────────────────────────────────────────────────────────
+
 class WeatherPanel {
     constructor() {
         this._data       = null;
@@ -404,6 +426,7 @@ class WeatherPanel {
     }
 
     _build() {
+        // ── Header ────────────────────────────────────────────────────────
         const header = hbox('wp-header');
         this._locationLbl = label('Loading…', 'wp-location');
 
@@ -427,10 +450,12 @@ class WeatherPanel {
         header.add_child(this._settingsBtn);
         this.actor.add_child(header);
 
+        // ── Alerts banner ─────────────────────────────────────────────────
         this._alertsBanner = vbox('wp-alerts-banner');
         this._alertsBanner.hide();
         this.actor.add_child(this._alertsBanner);
 
+        // ── Tab bar ───────────────────────────────────────────────────────
         const tabBar = hbox('wp-tab-bar');
         this._tabBtns = {};
         [
@@ -452,6 +477,7 @@ class WeatherPanel {
         });
         this.actor.add_child(tabBar);
 
+        // ── Scrollable content area ───────────────────────────────────────
         this._scroll = new St.ScrollView({
             style_class:        'wp-scroll',
             x_expand:           true,
@@ -607,7 +633,7 @@ class WeatherPanel {
             overallRow.add_child(overallLbl);
             box.add_child(overallRow);
 
-            box.add_child(label('By Pollutant (stations within 25 mi)', 'wp-section-title'));
+            box.add_child(label('By Pollutant (stations within 25 mi / 40 km)', 'wp-section-title'));
             entries.forEach(([param, obs]) => {
                 const row = hbox('wp-allergen-row');
                 row.add_child(label(PARAM_LABELS[param] ?? param, 'wp-allergen-name'));
@@ -643,6 +669,8 @@ class WeatherPanel {
     }
 }
 
+// ── WeatherIndicator (top-bar button) ────────────────────────────────────
+
 const WeatherIndicator = GObject.registerClass(
 class WeatherIndicator extends PanelMenu.Button {
     _init(extension) {
@@ -660,6 +688,7 @@ class WeatherIndicator extends PanelMenu.Button {
         this._cachedAq     = null;
         this._lastAqFetch  = 0;
 
+        // System interface settings for auto color-scheme detection
         try {
             this._ifaceSettings   = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
             this._ifaceSettingsId = this._ifaceSettings.connect('changed::color-scheme',
@@ -668,6 +697,7 @@ class WeatherIndicator extends PanelMenu.Button {
             this._ifaceSettings = null;
         }
 
+        // ── Pill (top bar) ────────────────────────────────────────────────
         const pill = hbox('wp-pill');
         pill.set_y_expand(true);
         pill.set_y_align(Clutter.ActorAlign.CENTER);
@@ -682,6 +712,7 @@ class WeatherIndicator extends PanelMenu.Button {
         pill.add_child(this._pillAlert);
         this.add_child(pill);
 
+        // ── Drop-down panel ───────────────────────────────────────────────
         this._panel = new WeatherPanel();
         this._panel.onRefresh(()  => this._fetch(true));
         this._panel.onSettings(() => this._ext.openPreferences());
@@ -718,6 +749,7 @@ class WeatherIndicator extends PanelMenu.Button {
         } else if (pref === 'dark') {
             isLight = false;
         } else {
+            // auto: follow org.gnome.desktop.interface color-scheme
             try {
                 isLight = this._ifaceSettings?.get_string('color-scheme') === 'prefer-light';
             } catch {
@@ -878,6 +910,8 @@ class WeatherIndicator extends PanelMenu.Button {
         super.destroy();
     }
 });
+
+// ── Extension entry point ─────────────────────────────────────────────────
 
 export default class WeatherPrimeExtension extends Extension {
     enable() {

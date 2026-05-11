@@ -47,6 +47,8 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         window.add(this._unitsPage(settings));
     }
 
+    // ── Location page ─────────────────────────────────────────────────────
+
     _locationPage(settings) {
         const page = new Adw.PreferencesPage({
             title:     'Location',
@@ -167,12 +169,15 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         return page;
     }
 
+    // ── API page ──────────────────────────────────────────────────────────
+
     _apiPage(settings) {
         const page = new Adw.PreferencesPage({
             title:     'Weather API',
             icon_name: 'network-wireless-symbolic',
         });
 
+        // Weather provider
         const sourceGroup = new Adw.PreferencesGroup({
             title:       'Weather Data Source',
             description: 'Open-Meteo is free and requires no API key. WeatherAPI.com requires a free account.',
@@ -204,9 +209,10 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         sourceGroup.add(wApiKeyRow);
         page.add(sourceGroup);
 
+        // AirNow (US EPA air quality)
         const aqGroup = new Adw.PreferencesGroup({
             title:       'Air Quality Data',
-            description: 'AirNow provides US EPA air quality index data (ozone, PM2.5, PM10, CO, SO2). Free — register at airnowapi.org. Without a key, basic PM2.5/PM10 from Open-Meteo is shown.',
+            description: 'AirNow provides US EPA air quality index (AQI) data. Free — register at airnowapi.org. Only pollutants with a monitoring station within 25 miles (40 km) are shown; CO and SO2 monitors are rare and may not appear for your area. Without a key, basic PM2.5/PM10 concentrations from Open-Meteo are shown.',
         });
         const airnowKeyRow = new Adw.PasswordEntryRow({
             title:             'AirNow API key',
@@ -217,6 +223,7 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         aqGroup.add(airnowKeyRow);
         page.add(aqGroup);
 
+        // API call frequency
         const fetchOptions = [
             {label: 'Every 15 minutes', minutes: 15},
             {label: 'Every 30 minutes', minutes: 30},
@@ -248,6 +255,8 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
 
         return page;
     }
+
+    // ── Units page ────────────────────────────────────────────────────────
 
     _unitsPage(settings) {
         const page = new Adw.PreferencesPage({
@@ -286,6 +295,7 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         ]));
         page.add(tempGroup);
 
+        // Wind speed
         const windGroup = new Adw.PreferencesGroup({title: 'Wind Speed'});
         windGroup.add(makeComboRow('Wind speed', 'Unit for wind speed in current conditions', 'wind-unit', [
             {label: 'mph',  value: 'mph'},
@@ -294,6 +304,7 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         ]));
         page.add(windGroup);
 
+        // Pressure
         const pressGroup = new Adw.PreferencesGroup({title: 'Pressure'});
         pressGroup.add(makeComboRow('Pressure', 'Unit for barometric pressure', 'pressure-unit', [
             {label: 'hPa (mb)', value: 'hpa'},
