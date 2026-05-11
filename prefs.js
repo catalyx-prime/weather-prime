@@ -121,11 +121,11 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         sourceGroup.add(wApiKeyRow);
         page.add(sourceGroup);
 
-        const pollenGroup = new Adw.PreferencesGroup({title: 'Pollen Data', description: 'Tomorrow.io provides global tree/grass/weed pollen indices. A free API key is required.'});
-        const tomorrowKeyRow = new Adw.PasswordEntryRow({title: 'Tomorrow.io API key', show_apply_button: true});
-        tomorrowKeyRow.set_text(settings.get_string('tomorrow-api-key'));
-        tomorrowKeyRow.connect('apply', () => settings.set_string('tomorrow-api-key', tomorrowKeyRow.get_text()));
-        pollenGroup.add(tomorrowKeyRow);
+        const pollenGroup = new Adw.PreferencesGroup({title: 'Pollen Data', description: 'Ambee provides tree/grass/weed pollen data globally. Free tier: 100 calls/day. Get a key at ambeedata.com.'});
+        const ambeeKeyRow = new Adw.PasswordEntryRow({title: 'Ambee API key', show_apply_button: true});
+        ambeeKeyRow.set_text(settings.get_string('ambee-api-key'));
+        ambeeKeyRow.connect('apply', () => settings.set_string('ambee-api-key', ambeeKeyRow.get_text()));
+        pollenGroup.add(ambeeKeyRow);
         page.add(pollenGroup);
 
         const intervalGroup = new Adw.PreferencesGroup({title: 'Refresh'});
