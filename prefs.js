@@ -44,7 +44,7 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
 
         window.add(this._locationPage(settings));
         window.add(this._apiPage(settings));
-        window.add(this._unitsPage(settings));
+        window.add(this._appearancePage(settings));
     }
 
     // ── Location page ─────────────────────────────────────────────────────
@@ -177,7 +177,6 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
             icon_name: 'network-wireless-symbolic',
         });
 
-        // Weather provider
         const sourceGroup = new Adw.PreferencesGroup({
             title:       'Weather Data Source',
             description: 'Open-Meteo is free and requires no API key. WeatherAPI.com requires a free account.',
@@ -209,7 +208,6 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         sourceGroup.add(wApiKeyRow);
         page.add(sourceGroup);
 
-        // AirNow (US EPA air quality)
         const aqGroup = new Adw.PreferencesGroup({
             title:       'Air Quality Data',
             description: 'AirNow provides US EPA air quality index (AQI) data. Free — register at airnowapi.org. Only pollutants with a monitoring station within 25 miles (40 km) are shown; CO and SO2 monitors are rare and may not appear for your area. Without a key, basic PM2.5/PM10 concentrations from Open-Meteo are shown.',
@@ -223,7 +221,6 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         aqGroup.add(airnowKeyRow);
         page.add(aqGroup);
 
-        // API call frequency
         const fetchOptions = [
             {label: 'Every 15 minutes', minutes: 15},
             {label: 'Every 30 minutes', minutes: 30},
@@ -256,12 +253,12 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         return page;
     }
 
-    // ── Units page ────────────────────────────────────────────────────────
+    // ── Appearance page ───────────────────────────────────────────────────
 
-    _unitsPage(settings) {
+    _appearancePage(settings) {
         const page = new Adw.PreferencesPage({
-            title:     'Units',
-            icon_name: 'weather-clear-symbolic',
+            title:     'Appearance',
+            icon_name: 'preferences-color-symbolic',
         });
 
         const makeComboRow = (title, subtitle, key, options) => {
@@ -279,39 +276,35 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
             return row;
         };
 
-        // Appearance
         const appearanceGroup = new Adw.PreferencesGroup({title: 'Appearance'});
         appearanceGroup.add(makeComboRow('Color scheme', 'Auto follows the system dark/light setting', 'color-scheme', [
             {label: 'Auto (follow system)', value: 'auto'},
             {label: 'Dark',                 value: 'dark'},
             {label: 'Light',                value: 'light'},
         ]));
+        appearanceGroup.add(makeComboRow('Panel position', 'Where the weather pill appears in the top bar', 'panel-position', [
+            {label: 'Left',   value: 'left'},
+            {label: 'Center', value: 'center'},
+            {label: 'Right',  value: 'right'},
+        ]));
         page.add(appearanceGroup);
 
-        const tempGroup = new Adw.PreferencesGroup({title: 'Temperature'});
-        tempGroup.add(makeComboRow('Temperature', 'Unit for all temperature values', 'temperature-unit', [
+        const unitsGroup = new Adw.PreferencesGroup({title: 'Units'});
+        unitsGroup.add(makeComboRow('Temperature', 'Unit for all temperature values', 'temperature-unit', [
             {label: 'Fahrenheit (°F)', value: 'fahrenheit'},
             {label: 'Celsius (°C)',    value: 'celsius'},
         ]));
-        page.add(tempGroup);
-
-        // Wind speed
-        const windGroup = new Adw.PreferencesGroup({title: 'Wind Speed'});
-        windGroup.add(makeComboRow('Wind speed', 'Unit for wind speed in current conditions', 'wind-unit', [
+        unitsGroup.add(makeComboRow('Wind speed', 'Unit for wind speed in current conditions', 'wind-unit', [
             {label: 'mph',  value: 'mph'},
             {label: 'km/h', value: 'kmh'},
             {label: 'm/s',  value: 'ms'},
         ]));
-        page.add(windGroup);
-
-        // Pressure
-        const pressGroup = new Adw.PreferencesGroup({title: 'Pressure'});
-        pressGroup.add(makeComboRow('Pressure', 'Unit for barometric pressure', 'pressure-unit', [
+        unitsGroup.add(makeComboRow('Pressure', 'Unit for barometric pressure', 'pressure-unit', [
             {label: 'hPa (mb)', value: 'hpa'},
             {label: 'inHg',     value: 'inhg'},
             {label: 'mmHg',     value: 'mmhg'},
         ]));
-        page.add(pressGroup);
+        page.add(unitsGroup);
 
         return page;
     }

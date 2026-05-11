@@ -915,13 +915,35 @@ class WeatherIndicator extends PanelMenu.Button {
 
 export default class WeatherPrimeExtension extends Extension {
     enable() {
+        this._settings = this.getSettings();
+        this._addIndicator();
+        this._posChangedId = this._settings.connect('changed::panel-position',
+            () => this._addIndicator());
+    }
+
+    _addIndicator() {
+        if (this._indicator) {
+            this._indicator.destroy();
+            this._indicator = null;
+        }
         this._indicator = new WeatherIndicator(this);
-        Main.panel.addToStatusArea(this.uuid, this._indicator);
+        const pos = this._settings.get_string('panel-position');
+        if (pos === 'left')
+            Main.panel.addToStatusArea(this.uuid, this._indicator, 99, 'left');
+        else if (pos === 'center')
+            Main.panel.addToStatusArea(this.uuid, this._indicator, 0, 'center');
+        else
+            Main.panel.addToStatusArea(this.uuid, this._indicator);
     }
 
     disable() {
+        if (this._posChangedId) {
+            this._settings?.disconnect(this._posChangedId);
+            this._posChangedId = null;
+        }
         _session = null;
         this._indicator?.destroy();
         this._indicator = null;
+        this._settings = null;
     }
 }
