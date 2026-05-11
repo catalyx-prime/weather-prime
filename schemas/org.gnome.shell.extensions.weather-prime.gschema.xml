@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.weather-prime"
+          path="/org/gnome/shell/extensions/weather-prime/">
+
+    <key name="api-provider" type="s">
+      <default>'open-meteo'</default>
+      <summary>Weather API provider</summary>
+      <description>Which weather API to use: 'open-meteo' (free, no key) or 'weatherapi'</description>
+    </key>
+
+    <key name="weatherapi-key" type="s">
+      <default>''</default>
+      <summary>WeatherAPI.com API key</summary>
+    </key>
+
+    <key name="tomorrow-api-key" type="s">
+      <default>''</default>
+      <summary>Tomorrow.io API key (for pollen data)</summary>
+    </key>
+
+    <key name="location-auto" type="b">
+      <default>true</default>
+      <summary>Use automatic location via GeoClue</summary>
+    </key>
+
+    <key name="location-latitude" type="d">
+      <default>0.0</default>
+      <summary>Manual location latitude</summary>
+    </key>
+
+    <key name="location-longitude" type="d">
+      <default>0.0</default>
+      <summary>Manual location longitude</summary>
+    </key>
+
+    <key name="location-name" type="s">
+      <default>''</default>
+      <summary>Display name for the manual location</summary>
+    </key>
+
+    <key name="temperature-unit" type="s">
+      <default>'fahrenheit'</default>
+      <summary>Temperature unit: 'fahrenheit' or 'celsius'</summary>
+    </key>
+
+    <key name="update-interval" type="i">
+      <default>30</default>
+      <summary>Update interval in minutes</summary>
+    </key>
+
+  </schema>
+</schemalist>

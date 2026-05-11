@@ -1,0 +1,59 @@
+.wp-pill {
+    background-color: transparent;
+    padding: 0 6px;
+    spacing: 5px;
+}
+.wp-pill-icon { font-size: 14px; }
+.wp-pill-temp { font-size: 13px; font-weight: bold; color: white; }
+.wp-pill-alert { font-size: 13px; color: #FFD740; padding-left: 3px; }
+.wp-panel { min-width: 340px; padding: 0; }
+.wp-header { padding: 10px 14px 8px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+.wp-location { font-size: 13px; font-weight: bold; color: rgba(255,255,255,0.9); }
+.wp-icon-btn { background: transparent; border: none; font-size: 15px; color: rgba(255,255,255,0.6); padding: 0 4px; border-radius: 6px; }
+.wp-icon-btn:hover { color: white; background-color: rgba(255,255,255,0.1); }
+.wp-settings-btn { font-size: 22px; }
+.wp-alerts-banner { padding: 6px 14px; border-bottom: 1px solid rgba(255,200,0,0.3); background-color: rgba(255,180,0,0.08); spacing: 4px; }
+.wp-alert-item { spacing: 2px; padding: 3px 0; }
+.wp-alert-title-row { spacing: 6px; }
+.wp-alert-badge { font-size: 14px; color: #FFD740; }
+.wp-alert-event { font-size: 12px; font-weight: bold; color: #FFD740; }
+.wp-alert-headline { font-size: 11px; color: rgba(255,220,100,0.8); }
+.wp-tab-bar { padding: 6px 10px 4px; spacing: 4px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.wp-tab { font-size: 11px; padding: 4px 6px; border-radius: 8px; border: 1px solid transparent; color: rgba(255,255,255,0.55); background: transparent; }
+.wp-tab:hover { color: rgba(255,255,255,0.85); background-color: rgba(255,255,255,0.08); }
+.wp-tab.active { color: white; background-color: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.18); }
+.wp-scroll { max-height: 320px; }
+.wp-content { padding: 10px 14px 12px; spacing: 6px; }
+.wp-status, .wp-error-msg { font-size: 12px; color: rgba(255,255,255,0.6); padding: 20px 0; }
+.wp-error-icon { font-size: 24px; padding: 10px 0 4px; }
+.wp-current { spacing: 10px; }
+.wp-current-top { spacing: 12px; padding-bottom: 4px; }
+.wp-cur-icon { font-size: 42px; min-width: 52px; }
+.wp-cur-right { spacing: 2px; }
+.wp-cur-temp { font-size: 30px; font-weight: bold; color: white; }
+.wp-cur-desc { font-size: 13px; color: rgba(255,255,255,0.65); }
+.wp-detail-grid { spacing: 4px; }
+.wp-detail-cell { background-color: rgba(255,255,255,0.07); border-radius: 8px; padding: 6px 8px; spacing: 2px; x-expand: true; }
+.wp-detail-key { font-size: 10px; color: rgba(255,255,255,0.5); }
+.wp-detail-val { font-size: 12px; font-weight: bold; color: rgba(255,255,255,0.9); }
+.wp-hourly { spacing: 2px; }
+.wp-hour-row { padding: 5px 4px; border-radius: 6px; spacing: 6px; }
+.wp-hour-row:hover { background-color: rgba(255,255,255,0.06); }
+.wp-hour-time { font-size: 12px; color: rgba(255,255,255,0.55); min-width: 36px; }
+.wp-hour-icon { font-size: 14px; }
+.wp-hour-temp { font-size: 13px; font-weight: bold; color: rgba(255,255,255,0.9); }
+.wp-daily { spacing: 2px; }
+.wp-day-row { padding: 6px 4px; border-radius: 6px; spacing: 4px; }
+.wp-day-row:hover { background-color: rgba(255,255,255,0.06); }
+.wp-day-name { font-size: 12px; font-weight: bold; color: rgba(255,255,255,0.85); min-width: 40px; }
+.wp-day-icon { font-size: 14px; min-width: 22px; }
+.wp-day-hi { font-size: 12px; font-weight: bold; color: #FFCC80; min-width: 42px; x-align: right; }
+.wp-day-sep { font-size: 12px; color: rgba(255,255,255,0.3); }
+.wp-day-lo { font-size: 12px; color: #90CAF9; min-width: 42px; }
+.wp-day-precip { font-size: 11px; color: rgba(255,255,255,0.45); }
+.wp-allergens { spacing: 4px; }
+.wp-section-title { font-size: 11px; font-weight: bold; color: rgba(255,255,255,0.4); padding-bottom: 4px; padding-top: 6px; }
+.wp-allergen-row { padding: 5px 4px; border-radius: 6px; spacing: 4px; }
+.wp-allergen-row:hover { background-color: rgba(255,255,255,0.06); }
+.wp-allergen-name { font-size: 12px; color: rgba(255,255,255,0.75); }
+.wp-allergen-val { font-size: 11px; font-weight: bold; }
