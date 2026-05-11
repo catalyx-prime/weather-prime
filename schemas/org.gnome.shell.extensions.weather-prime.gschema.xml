@@ -47,5 +47,9 @@
       <default>1440</default>
       <summary>API fetch interval in minutes (how often to call weather APIs)</summary>
     </key>
+    <key name="pollen-fetch-interval" type="i">
+      <default>1440</default>
+      <summary>Pollen API fetch interval in minutes</summary>
+    </key>
   </schema>
 </schemalist>

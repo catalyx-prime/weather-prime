@@ -249,11 +249,9 @@ class WeatherPanel {
     _build() {
         const header=hbox('wp-header');
         this._locationLbl=label('Loading…','wp-location');
-        this._refreshBtn=new St.Button({label:'↻',style_class:'wp-icon-btn'});
-        this._refreshBtn.tooltip_text='Refresh weather data';
+        this._refreshBtn = new St.Button({label: '↻', style_class: 'wp-icon-btn', tooltip_text: 'Refresh weather data', reactive: true, track_hover: true});
         this._refreshBtn.connect('clicked',()=>this._refreshCb?.());
-        this._settingsBtn=new St.Button({label:'⚙',style_class:'wp-icon-btn wp-settings-btn'});
-        this._settingsBtn.tooltip_text='Open preferences';
+        this._settingsBtn = new St.Button({label: '⚙', style_class: 'wp-icon-btn wp-settings-btn', tooltip_text: 'Open preferences', reactive: true, track_hover: true});
         this._settingsBtn.connect('clicked',()=>this._settingsCb?.());
         header.add_child(this._locationLbl);header.add_child(spacer());
         header.add_child(this._refreshBtn);header.add_child(this._settingsBtn);
@@ -416,8 +414,14 @@ class WeatherIndicator extends PanelMenu.Button {
         this._fetch(true);this._startTimer();
     }
     _startTimer() {
-        const secs=Math.max(5,this._settings.get_int('fetch-interval'))*60;
-        this._timer=GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT,secs,()=>{this._fetch(true);return GLib.SOURCE_CONTINUE;});
+        const weatherMins = Math.max(5, this._settings.get_int('fetch-interval'));
+        const pollenMins  = Math.max(5, this._settings.get_int('pollen-fetch-interval'));
+        const secs = Math.min(weatherMins, pollenMins) * 60;
+        this._timer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, secs, () => {
+            this._fetch(false);
+            return GLib.SOURCE_CONTINUE;
+        });
+    });
     }
     _restartTimer(){if(this._timer){GLib.source_remove(this._timer);this._timer=null;}this._startTimer();}
     async _resolveLocation() {
