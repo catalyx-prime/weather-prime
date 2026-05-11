@@ -270,6 +270,15 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
             return row;
         };
 
+        // Appearance
+        const appearanceGroup = new Adw.PreferencesGroup({title: 'Appearance'});
+        appearanceGroup.add(makeComboRow('Color scheme', 'Auto follows the system dark/light setting', 'color-scheme', [
+            {label: 'Auto (follow system)', value: 'auto'},
+            {label: 'Dark',                 value: 'dark'},
+            {label: 'Light',                value: 'light'},
+        ]));
+        page.add(appearanceGroup);
+
         const tempGroup = new Adw.PreferencesGroup({title: 'Temperature'});
         tempGroup.add(makeComboRow('Temperature', 'Unit for all temperature values', 'temperature-unit', [
             {label: 'Fahrenheit (°F)', value: 'fahrenheit'},

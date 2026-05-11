@@ -17,6 +17,11 @@
     <key name="update-interval" type="i"><default>30</default><summary>Update interval (legacy)</summary></key>
     <key name="fetch-interval" type="i"><default>1440</default><summary>Weather fetch interval in minutes</summary></key>
     <key name="pollen-fetch-interval" type="i"><default>1440</default><summary>Pollen fetch interval (legacy)</summary></key>
+    <key name="color-scheme" type="s">
+      <default>'auto'</default>
+      <summary>Panel color scheme: auto, dark, or light</summary>
+    </key>
+
     <key name="aq-fetch-interval" type="i"><default>60</default><summary>Air quality fetch interval in minutes</summary></key>
   </schema>
 </schemalist>

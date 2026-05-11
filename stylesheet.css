@@ -57,3 +57,38 @@
 .wp-allergen-row:hover { background-color: rgba(255,255,255,0.06); }
 .wp-allergen-name { font-size: 12px; color: rgba(255,255,255,0.75); }
 .wp-allergen-val { font-size: 11px; font-weight: bold; }
+
+/* ── Light mode overrides ────────────────────────────────────────────────── */
+
+.wp-panel.wp-light {
+    background-color: rgba(246, 246, 246, 0.98);
+    border-radius: 12px;
+}
+.wp-panel.wp-light .wp-header { border-bottom-color: rgba(0,0,0,0.1); }
+.wp-panel.wp-light .wp-location { color: rgba(0,0,0,0.85); }
+.wp-panel.wp-light .wp-icon-btn { color: rgba(0,0,0,0.45); }
+.wp-panel.wp-light .wp-icon-btn:hover { color: rgba(0,0,0,0.75); background-color: rgba(0,0,0,0.07); }
+.wp-panel.wp-light .wp-alerts-banner { border-bottom-color: rgba(180,100,0,0.3); background-color: rgba(255,180,0,0.12); }
+.wp-panel.wp-light .wp-tab-bar { border-bottom-color: rgba(0,0,0,0.08); }
+.wp-panel.wp-light .wp-tab { color: rgba(0,0,0,0.5); }
+.wp-panel.wp-light .wp-tab:hover { color: rgba(0,0,0,0.75); background-color: rgba(0,0,0,0.06); }
+.wp-panel.wp-light .wp-tab.active { color: rgba(0,0,0,0.85); background-color: rgba(0,0,0,0.1); border-color: rgba(0,0,0,0.15); }
+.wp-panel.wp-light .wp-status,
+.wp-panel.wp-light .wp-error-msg { color: rgba(0,0,0,0.5); }
+.wp-panel.wp-light .wp-cur-temp { color: rgba(0,0,0,0.88); }
+.wp-panel.wp-light .wp-cur-desc { color: rgba(0,0,0,0.55); }
+.wp-panel.wp-light .wp-detail-cell { background-color: rgba(0,0,0,0.05); }
+.wp-panel.wp-light .wp-detail-key { color: rgba(0,0,0,0.45); }
+.wp-panel.wp-light .wp-detail-val { color: rgba(0,0,0,0.85); }
+.wp-panel.wp-light .wp-hour-time { color: rgba(0,0,0,0.5); }
+.wp-panel.wp-light .wp-hour-temp { color: rgba(0,0,0,0.85); }
+.wp-panel.wp-light .wp-hour-row:hover,
+.wp-panel.wp-light .wp-day-row:hover,
+.wp-panel.wp-light .wp-allergen-row:hover { background-color: rgba(0,0,0,0.04); }
+.wp-panel.wp-light .wp-day-name { color: rgba(0,0,0,0.8); }
+.wp-panel.wp-light .wp-day-hi { color: #BF360C; }
+.wp-panel.wp-light .wp-day-sep { color: rgba(0,0,0,0.25); }
+.wp-panel.wp-light .wp-day-lo { color: #1565C0; }
+.wp-panel.wp-light .wp-day-precip { color: rgba(0,0,0,0.4); }
+.wp-panel.wp-light .wp-section-title { color: rgba(0,0,0,0.35); }
+.wp-panel.wp-light .wp-allergen-name { color: rgba(0,0,0,0.7); }

@@ -107,11 +107,22 @@ function fmtWind(mph, dir, windUnit) {
     return dir ? `${val} ${sym} ${dir}` : `${val} ${sym}`;
 }
 
-function fmtPressure(hpa, pressureUnit) {
+function fmtPressure(hpa, pressureUnit, trend = '') {
     if (hpa == null) return '--';
-    if (pressureUnit === 'inhg') return `${(hpa * 0.02953).toFixed(2)} inHg`;
-    if (pressureUnit === 'mmhg') return `${Math.round(hpa * 0.75006)} mmHg`;
-    return `${Math.round(hpa)} hPa`;
+    if (pressureUnit === 'inhg') return `${(hpa * 0.02953).toFixed(2)} inHg${trend}`;
+    if (pressureUnit === 'mmhg') return `${Math.round(hpa * 0.75006)} mmHg${trend}`;
+    return `${Math.round(hpa)} hPa${trend}`;
+}
+
+function pressureTrend(pressureArray, currentIdx) {
+    if (!pressureArray || currentIdx < 3) return '';
+    const curr = pressureArray[currentIdx];
+    const prev = pressureArray[currentIdx - 3];
+    if (curr == null || prev == null) return '';
+    const diff = curr - prev;
+    if (diff > 2)  return ' ↑';
+    if (diff < -2) return ' ↓';
+    return ' →';
 }
 
 function shortHour(isoString) {
@@ -161,7 +172,7 @@ function buildOpenMeteoUrl(lat, lon, unit) {
             'temperature_2m', 'apparent_temperature', 'relative_humidity_2m',
             'wind_speed_10m', 'wind_direction_10m', 'weather_code', 'surface_pressure',
         ].join(','),
-        hourly:           'temperature_2m,weather_code',
+        hourly:           'temperature_2m,weather_code,surface_pressure',
         daily:            'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
         temperature_unit: tu,
         wind_speed_unit:  'mph',
@@ -212,13 +223,15 @@ function parseOpenMeteo(data, aqData, windUnit, pressureUnit, unit) {
     if (aqIdx < 0) aqIdx = 0;
     const aq = key => aqH?.[key]?.[aqIdx] ?? null;
 
+    const trend = pressureTrend(h.surface_pressure, hi);
+
     return {
         current: {
             temp:      fmt(c.temperature_2m, unit),
             feelsLike: fmt(c.apparent_temperature, unit),
             humidity:  `${c.relative_humidity_2m ?? '--'}%`,
             wind:      fmtWind(c.wind_speed_10m, windDir(c.wind_direction_10m), windUnit),
-            pressure:  fmtPressure(c.surface_pressure, pressureUnit),
+            pressure:  fmtPressure(c.surface_pressure, pressureUnit, trend),
             icon:      wmo(c.weather_code).icon,
             desc:      wmo(c.weather_code).desc,
         },
@@ -281,13 +294,15 @@ function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit) {
     if (aqIdx < 0) aqIdx = 0;
     const aq = key => aqH?.[key]?.[aqIdx] ?? null;
 
+    const trend = pressureTrend(allHours.map(h => h.pressure_mb), hi);
+
     return {
         current: {
             temp:      `${Math.round(isF ? c.temp_f : c.temp_c)}°${isF ? 'F' : 'C'}`,
             feelsLike: `${Math.round(isF ? c.feelslike_f : c.feelslike_c)}°${isF ? 'F' : 'C'}`,
             humidity:  `${c.humidity}%`,
             wind:      fmtWind(c.wind_mph, c.wind_dir, windUnit),
-            pressure:  fmtPressure(c.pressure_mb, pressureUnit),
+            pressure:  fmtPressure(c.pressure_mb, pressureUnit, trend),
             icon:      wApiIcon(c.condition.text, c.is_day),
             desc:      c.condition.text,
         },
@@ -592,7 +607,7 @@ class WeatherPanel {
             overallRow.add_child(overallLbl);
             box.add_child(overallRow);
 
-            box.add_child(label('By Pollutant', 'wp-section-title'));
+            box.add_child(label('By Pollutant (stations within 25 mi)', 'wp-section-title'));
             entries.forEach(([param, obs]) => {
                 const row = hbox('wp-allergen-row');
                 row.add_child(label(PARAM_LABELS[param] ?? param, 'wp-allergen-name'));
@@ -645,6 +660,14 @@ class WeatherIndicator extends PanelMenu.Button {
         this._cachedAq     = null;
         this._lastAqFetch  = 0;
 
+        try {
+            this._ifaceSettings   = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
+            this._ifaceSettingsId = this._ifaceSettings.connect('changed::color-scheme',
+                () => this._updateTheme());
+        } catch {
+            this._ifaceSettings = null;
+        }
+
         const pill = hbox('wp-pill');
         pill.set_y_expand(true);
         pill.set_y_align(Clutter.ActorAlign.CENTER);
@@ -677,12 +700,34 @@ class WeatherIndicator extends PanelMenu.Button {
             this._lastFetch    = 0;
             this._cachedAq     = null;
             this._lastAqFetch  = 0;
+            this._updateTheme();
             this._restartTimer();
             this._fetch(true);
         });
 
+        this._updateTheme();
         this._fetch(true);
         this._startTimer();
+    }
+
+    _updateTheme() {
+        const pref = this._settings.get_string('color-scheme');
+        let isLight;
+        if (pref === 'light') {
+            isLight = true;
+        } else if (pref === 'dark') {
+            isLight = false;
+        } else {
+            try {
+                isLight = this._ifaceSettings?.get_string('color-scheme') === 'prefer-light';
+            } catch {
+                isLight = false;
+            }
+        }
+        if (isLight)
+            this._panel.actor.add_style_class_name('wp-light');
+        else
+            this._panel.actor.remove_style_class_name('wp-light');
     }
 
     _startTimer() {
@@ -826,6 +871,10 @@ class WeatherIndicator extends PanelMenu.Button {
     destroy() {
         if (this._timer)      { GLib.source_remove(this._timer); this._timer = null; }
         if (this._settingsId) { this._settings.disconnect(this._settingsId); this._settingsId = null; }
+        if (this._ifaceSettings && this._ifaceSettingsId) {
+            this._ifaceSettings.disconnect(this._ifaceSettingsId);
+            this._ifaceSettings = null;
+        }
         super.destroy();
     }
 });
