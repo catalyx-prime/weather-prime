@@ -59,25 +59,32 @@ function wmo(code) {
     return WMO[code] ?? {icon: '🌡️', desc: 'Unknown'};
 }
 
-function pollenRisk(risk) {
-    if (!risk) return {text: 'N/A', color: null};
-    const map = {
-        'Low':       {text: 'Low',       color: '#4CAF50'},
-        'Moderate':  {text: 'Moderate',  color: '#FFC107'},
-        'High':      {text: 'High',      color: '#FF5722'},
-        'Very High': {text: 'Very High', color: '#EF5350'},
-    };
-    return map[risk] ?? {text: risk, color: null};
-}
-
 function pm25Level(v) {
     if (v == null) return {text: 'N/A', color: null};
-    if (v < 12)    return {text: 'Good',           color: '#4CAF50'};
-    if (v < 35.4)  return {text: 'Moderate',       color: '#FFC107'};
-    if (v < 55.4)  return {text: 'USG',            color: '#FF9800'};
-    if (v < 150.4) return {text: 'Unhealthy',      color: '#FF5722'};
-    return               {text: 'Very Unhealthy',  color: '#EF5350'};
+    if (v < 12)    return {text: 'Good',          color: '#4CAF50'};
+    if (v < 35.4)  return {text: 'Moderate',      color: '#FFC107'};
+    if (v < 55.4)  return {text: 'USG',           color: '#FF9800'};
+    if (v < 150.4) return {text: 'Unhealthy',     color: '#FF5722'};
+    return               {text: 'Very Unhealthy', color: '#EF5350'};
 }
+
+const AQ_COLORS = {
+    1: '#4CAF50',
+    2: '#FFC107',
+    3: '#FF9800',
+    4: '#FF5722',
+    5: '#9C27B0',
+    6: '#B71C1C',
+};
+
+const PARAM_LABELS = {
+    'O3':    'Ozone',
+    'PM2.5': 'PM 2.5',
+    'PM10':  'PM 10',
+    'CO':    'Carbon Monoxide',
+    'SO2':   'Sulfur Dioxide',
+    'NO2':   'Nitrogen Dioxide',
+};
 
 function windDir(deg) {
     if (deg == null) return '';
@@ -89,6 +96,22 @@ function fmt(val, unit) {
     if (val == null) return '--';
     const sym = unit === 'fahrenheit' ? '°F' : '°C';
     return `${Math.round(val)}${sym}`;
+}
+
+function fmtWind(mph, dir, windUnit) {
+    if (mph == null) return '--';
+    let val, sym;
+    if (windUnit === 'kmh')     { val = Math.round(mph * 1.60934); sym = 'km/h'; }
+    else if (windUnit === 'ms') { val = (mph * 0.44704).toFixed(1); sym = 'm/s'; }
+    else                        { val = Math.round(mph); sym = 'mph'; }
+    return dir ? `${val} ${sym} ${dir}` : `${val} ${sym}`;
+}
+
+function fmtPressure(hpa, pressureUnit) {
+    if (hpa == null) return '--';
+    if (pressureUnit === 'inhg') return `${(hpa * 0.02953).toFixed(2)} inHg`;
+    if (pressureUnit === 'mmhg') return `${Math.round(hpa * 0.75006)} mmHg`;
+    return `${Math.round(hpa)} hPa`;
 }
 
 function shortHour(isoString) {
@@ -132,14 +155,14 @@ function fetchJSON(url) {
 function buildOpenMeteoUrl(lat, lon, unit) {
     const tu = unit === 'fahrenheit' ? 'fahrenheit' : 'celsius';
     const params = new URLSearchParams({
-        latitude: lat,
+        latitude:  lat,
         longitude: lon,
         current: [
             'temperature_2m', 'apparent_temperature', 'relative_humidity_2m',
             'wind_speed_10m', 'wind_direction_10m', 'weather_code', 'surface_pressure',
         ].join(','),
-        hourly: 'temperature_2m,weather_code',
-        daily:  'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
+        hourly:           'temperature_2m,weather_code',
+        daily:            'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
         temperature_unit: tu,
         wind_speed_unit:  'mph',
         timezone:         'auto',
@@ -150,16 +173,16 @@ function buildOpenMeteoUrl(lat, lon, unit) {
 
 function buildAirQualityUrl(lat, lon) {
     const params = new URLSearchParams({
-        latitude:     lat,
-        longitude:    lon,
-        hourly:       'pm2_5,pm10',
-        timezone:     'auto',
+        latitude:      lat,
+        longitude:     lon,
+        hourly:        'pm2_5,pm10',
+        timezone:      'auto',
         forecast_days: 1,
     });
     return `https://air-quality-api.open-meteo.com/v1/air-quality?${params}`;
 }
 
-function parseOpenMeteo(data, aqData, pollen, unit) {
+function parseOpenMeteo(data, aqData, windUnit, pressureUnit, unit) {
     const c = data.current;
     const h = data.hourly;
     const d = data.daily;
@@ -194,22 +217,17 @@ function parseOpenMeteo(data, aqData, pollen, unit) {
             temp:      fmt(c.temperature_2m, unit),
             feelsLike: fmt(c.apparent_temperature, unit),
             humidity:  `${c.relative_humidity_2m ?? '--'}%`,
-            wind:      `${Math.round(c.wind_speed_10m ?? 0)} mph ${windDir(c.wind_direction_10m)}`,
-            pressure:  `${Math.round(c.surface_pressure ?? 0)} hPa`,
+            wind:      fmtWind(c.wind_speed_10m, windDir(c.wind_direction_10m), windUnit),
+            pressure:  fmtPressure(c.surface_pressure, pressureUnit),
             icon:      wmo(c.weather_code).icon,
             desc:      wmo(c.weather_code).desc,
         },
         hourly,
         daily,
-        allergens: {
-            treeRisk:   pollen?.treeRisk   ?? null,
-            grassRisk:  pollen?.grassRisk  ?? null,
-            weedRisk:   pollen?.weedRisk   ?? null,
-            treeCount:  pollen?.treeCount  ?? null,
-            grassCount: pollen?.grassCount ?? null,
-            weedCount:  pollen?.weedCount  ?? null,
-            pm25:       aq('pm2_5'),
-            pm10:       aq('pm10'),
+        airquality: {
+            airnow: null,
+            pm25:   aq('pm2_5'),
+            pm10:   aq('pm10'),
         },
     };
 }
@@ -233,12 +251,11 @@ function wApiIcon(condText, isDay) {
     return isDay ? '☀️' : '🌙';
 }
 
-function parseWeatherAPI(data, aqData, pollen, unit) {
+function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit) {
     const c   = data.current;
     const isF = unit === 'fahrenheit';
 
     const now = new Date();
-
     const allHours = data.forecast.forecastday.flatMap(day => day.hour);
     let hi = 0;
     for (let i = 0; i < allHours.length; i++) {
@@ -251,7 +268,7 @@ function parseWeatherAPI(data, aqData, pollen, unit) {
         icon: wApiIcon(h.condition.text, h.is_day),
     }));
 
-    const daily = data.forecast.forecastday.map((day, i) => ({
+    const daily = data.forecast.forecastday.map(day => ({
         day:    shortDay(day.date),
         hi:     `${Math.round(isF ? day.day.maxtemp_f : day.day.maxtemp_c)}°${isF ? 'F' : 'C'}`,
         lo:     `${Math.round(isF ? day.day.mintemp_f : day.day.mintemp_c)}°${isF ? 'F' : 'C'}`,
@@ -269,64 +286,48 @@ function parseWeatherAPI(data, aqData, pollen, unit) {
             temp:      `${Math.round(isF ? c.temp_f : c.temp_c)}°${isF ? 'F' : 'C'}`,
             feelsLike: `${Math.round(isF ? c.feelslike_f : c.feelslike_c)}°${isF ? 'F' : 'C'}`,
             humidity:  `${c.humidity}%`,
-            wind:      `${Math.round(c.wind_mph)} mph ${c.wind_dir}`,
-            pressure:  `${Math.round(c.pressure_mb)} hPa`,
+            wind:      fmtWind(c.wind_mph, c.wind_dir, windUnit),
+            pressure:  fmtPressure(c.pressure_mb, pressureUnit),
             icon:      wApiIcon(c.condition.text, c.is_day),
             desc:      c.condition.text,
         },
         hourly,
         daily,
-        allergens: {
-            treeRisk:   pollen?.treeRisk   ?? null,
-            grassRisk:  pollen?.grassRisk  ?? null,
-            weedRisk:   pollen?.weedRisk   ?? null,
-            treeCount:  pollen?.treeCount  ?? null,
-            grassCount: pollen?.grassCount ?? null,
-            weedCount:  pollen?.weedCount  ?? null,
-            pm25:       aq('pm2_5'),
-            pm10:       aq('pm10'),
+        airquality: {
+            airnow: null,
+            pm25:   aq('pm2_5'),
+            pm10:   aq('pm10'),
         },
     };
 }
 
-function fetchAmbeeJSON(url, apiKey) {
-    return new Promise((resolve, reject) => {
-        const msg = Soup.Message.new('GET', url);
-        if (!msg) { reject(new Error(`Bad URL: ${url}`)); return; }
-        msg.request_headers.append('x-api-key', apiKey);
-        getSession().send_and_read_async(msg, GLib.PRIORITY_DEFAULT, null, (sess, result) => {
-            try {
-                const bytes = sess.send_and_read_finish(result);
-                if (msg.get_status() !== Soup.Status.OK)
-                    throw new Error(`HTTP ${msg.get_status()}`);
-                resolve(JSON.parse(new TextDecoder().decode(bytes.get_data())));
-            } catch (e) { reject(e); }
-        });
-    });
-}
-
-async function fetchAmbeePollen(lat, lon, key) {
+async function fetchAirNow(lat, lon, key) {
     if (!key) return null;
     try {
-        const d = await fetchAmbeeJSON(
-            `https://api.ambeedata.com/latest/pollen/by-lat-lng?lat=${lat}&lng=${lon}`,
-            key
+        const params = new URLSearchParams({
+            format:    'application/json',
+            latitude:  lat.toFixed(4),
+            longitude: lon.toFixed(4),
+            distance:  25,
+            API_KEY:   key,
+        });
+        const data = await fetchJSON(
+            `https://www.airnowapi.org/aq/observation/latLong/current/?${params}`
         );
-        const entry = d?.data?.[0];
-        if (!entry) {
-            console.warn('[WeatherPrime] Ambee pollen: unexpected response', JSON.stringify(d));
-            return null;
-        }
-        return {
-            treeRisk:   entry.Risk?.tree_pollen  ?? null,
-            grassRisk:  entry.Risk?.grass_pollen ?? null,
-            weedRisk:   entry.Risk?.weed_pollen  ?? null,
-            treeCount:  entry.Count?.tree_pollen  ?? null,
-            grassCount: entry.Count?.grass_pollen ?? null,
-            weedCount:  entry.Count?.weed_pollen  ?? null,
-        };
+        if (!Array.isArray(data) || data.length === 0) return null;
+        const result = {};
+        data.forEach(obs => {
+            if (obs.AQI >= 0) {
+                result[obs.ParameterName] = {
+                    aqi:         obs.AQI,
+                    category:    obs.Category.Name,
+                    categoryNum: obs.Category.Number,
+                };
+            }
+        });
+        return Object.keys(result).length > 0 ? result : null;
     } catch (e) {
-        console.error('[WeatherPrime] Ambee pollen error:', e.message);
+        console.error('[WeatherPrime] AirNow error:', e.message);
         return null;
     }
 }
@@ -418,10 +419,10 @@ class WeatherPanel {
         const tabBar = hbox('wp-tab-bar');
         this._tabBtns = {};
         [
-            ['current',   'Now'],
-            ['hourly',    'Hourly'],
-            ['daily',     '7-Day'],
-            ['allergens', '🌿 Allergens'],
+            ['current',    'Now'],
+            ['hourly',     'Hourly'],
+            ['daily',      '7-Day'],
+            ['airquality', '🌬️ Air Quality'],
         ].forEach(([id, lbl]) => {
             const btn = new St.Button({
                 label:       lbl,
@@ -506,10 +507,10 @@ class WeatherPanel {
         this._content.destroy_all_children();
         if (!this._data) return;
         switch (this._tab) {
-        case 'current':   this._renderCurrent();   break;
-        case 'hourly':    this._renderHourly();    break;
-        case 'daily':     this._renderDaily();     break;
-        case 'allergens': this._renderAllergens(); break;
+        case 'current':    this._renderCurrent();    break;
+        case 'hourly':     this._renderHourly();     break;
+        case 'daily':      this._renderDaily();      break;
+        case 'airquality': this._renderAirQuality(); break;
         }
     }
 
@@ -570,44 +571,58 @@ class WeatherPanel {
         this._content.add_child(box);
     }
 
-    _renderAllergens() {
-        const a   = this._data.allergens;
+    _renderAirQuality() {
+        const aq  = this._data.airquality;
         const box = vbox('wp-allergens');
 
-        box.add_child(label('Pollen', 'wp-section-title'));
-        [
-            ['Tree',  a.treeRisk,  a.treeCount],
-            ['Grass', a.grassRisk, a.grassCount],
-            ['Weed',  a.weedRisk,  a.weedCount],
-        ].forEach(([name, risk, count]) => {
-            const lvl = pollenRisk(risk);
-            const row = hbox('wp-allergen-row');
-            row.add_child(label(name, 'wp-allergen-name'));
-            row.add_child(spacer());
-            const valStr = count != null
-                ? `${Math.round(count)} gr/m³ — ${lvl.text}`
-                : lvl.text;
-            const valLbl = label(valStr, 'wp-allergen-val');
-            if (lvl.color) valLbl.set_style(`color: ${lvl.color};`);
-            row.add_child(valLbl);
-            box.add_child(row);
-        });
+        if (aq.airnow && Object.keys(aq.airnow).length > 0) {
+            const entries = Object.entries(aq.airnow);
+            const worst   = entries.reduce(
+                (max, [, v]) => v.aqi > max.aqi ? v : max,
+                entries[0][1]
+            );
 
-        box.add_child(label('Air Quality', 'wp-section-title'));
-        [
-            ['PM 2.5', a.pm25, 'µg/m³'],
-            ['PM 10',  a.pm10, 'µg/m³'],
-        ].forEach(([name, val, unit]) => {
-            const lvl = pm25Level(val);
-            const row = hbox('wp-allergen-row');
-            row.add_child(label(name, 'wp-allergen-name'));
-            row.add_child(spacer());
-            const valStr = val != null ? `${Math.round(val)} ${unit} — ${lvl.text}` : 'N/A';
-            const valLbl = label(valStr, 'wp-allergen-val');
-            if (lvl.color) valLbl.set_style(`color: ${lvl.color};`);
-            row.add_child(valLbl);
-            box.add_child(row);
-        });
+            box.add_child(label('Overall AQI', 'wp-section-title'));
+            const overallRow = hbox('wp-allergen-row');
+            overallRow.add_child(label('Air Quality', 'wp-allergen-name'));
+            overallRow.add_child(spacer());
+            const overallLbl = label(`${worst.aqi} — ${worst.category}`, 'wp-allergen-val');
+            const overallColor = AQ_COLORS[worst.categoryNum];
+            if (overallColor) overallLbl.set_style(`color: ${overallColor};`);
+            overallRow.add_child(overallLbl);
+            box.add_child(overallRow);
+
+            box.add_child(label('By Pollutant', 'wp-section-title'));
+            entries.forEach(([param, obs]) => {
+                const row = hbox('wp-allergen-row');
+                row.add_child(label(PARAM_LABELS[param] ?? param, 'wp-allergen-name'));
+                row.add_child(spacer());
+                const valLbl = label(`${obs.aqi} — ${obs.category}`, 'wp-allergen-val');
+                const color = AQ_COLORS[obs.categoryNum];
+                if (color) valLbl.set_style(`color: ${color};`);
+                row.add_child(valLbl);
+                box.add_child(row);
+            });
+        } else {
+            box.add_child(label('Air Quality', 'wp-section-title'));
+            [
+                ['PM 2.5', aq.pm25, 'µg/m³'],
+                ['PM 10',  aq.pm10, 'µg/m³'],
+            ].forEach(([name, val, unit]) => {
+                const lvl = pm25Level(val);
+                const row = hbox('wp-allergen-row');
+                row.add_child(label(name, 'wp-allergen-name'));
+                row.add_child(spacer());
+                const valStr = val != null ? `${Math.round(val)} ${unit} — ${lvl.text}` : 'N/A';
+                const valLbl = label(valStr, 'wp-allergen-val');
+                if (lvl.color) valLbl.set_style(`color: ${lvl.color};`);
+                row.add_child(valLbl);
+                box.add_child(row);
+            });
+            const note = label('Add an AirNow key in Preferences for full AQI data (US only)', 'wp-status');
+            note.clutter_text.line_wrap = true;
+            box.add_child(note);
+        }
 
         this._content.add_child(box);
     }
@@ -625,10 +640,10 @@ class WeatherIndicator extends PanelMenu.Button {
         this._locName  = '';
         this._busy     = false;
 
-        this._cachedParsed    = null;
-        this._lastFetch       = 0;
-        this._cachedPollen    = null;
-        this._lastPollenFetch = 0;
+        this._cachedParsed = null;
+        this._lastFetch    = 0;
+        this._cachedAq     = null;
+        this._lastAqFetch  = 0;
 
         const pill = hbox('wp-pill');
         pill.set_y_expand(true);
@@ -658,10 +673,10 @@ class WeatherIndicator extends PanelMenu.Button {
 
         this._settingsId = this._settings.connect('changed', () => {
             _session = null;
-            this._cachedParsed    = null;
-            this._lastFetch       = 0;
-            this._cachedPollen    = null;
-            this._lastPollenFetch = 0;
+            this._cachedParsed = null;
+            this._lastFetch    = 0;
+            this._cachedAq     = null;
+            this._lastAqFetch  = 0;
             this._restartTimer();
             this._fetch(true);
         });
@@ -672,8 +687,8 @@ class WeatherIndicator extends PanelMenu.Button {
 
     _startTimer() {
         const weatherMins = Math.max(5, this._settings.get_int('fetch-interval'));
-        const pollenMins  = Math.max(5, this._settings.get_int('pollen-fetch-interval'));
-        const secs = Math.min(weatherMins, pollenMins) * 60;
+        const aqMins      = Math.max(5, this._settings.get_int('aq-fetch-interval'));
+        const secs = Math.min(weatherMins, aqMins) * 60;
         this._timer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, secs, () => {
             this._fetch(false);
             return GLib.SOURCE_CONTINUE;
@@ -727,11 +742,11 @@ class WeatherIndicator extends PanelMenu.Button {
 
         const now          = Date.now();
         const weatherMs    = Math.max(5, this._settings.get_int('fetch-interval')) * 60 * 1000;
-        const pollenMs     = Math.max(5, this._settings.get_int('pollen-fetch-interval')) * 60 * 1000;
+        const aqMs         = Math.max(5, this._settings.get_int('aq-fetch-interval')) * 60 * 1000;
         const weatherFresh = !force && this._cachedParsed && (now - this._lastFetch) < weatherMs;
-        const pollenFresh  = !force && this._lastPollenFetch > 0 && (now - this._lastPollenFetch) < pollenMs;
+        const aqFresh      = !force && this._lastAqFetch > 0 && (now - this._lastAqFetch) < aqMs;
 
-        if (weatherFresh && pollenFresh) {
+        if (weatherFresh && aqFresh) {
             if (this._locName) this._panel.setLocation(this._locName);
             this._panel.setData(this._cachedParsed);
             return;
@@ -744,28 +759,23 @@ class WeatherIndicator extends PanelMenu.Button {
             await this._resolveLocation();
             this._panel.setLocation(this._locName);
 
-            const provider = this._settings.get_string('api-provider');
-            const unit     = this._settings.get_string('temperature-unit');
-            const ambeeKey = this._settings.get_string('ambee-api-key').trim();
+            const provider     = this._settings.get_string('api-provider');
+            const unit         = this._settings.get_string('temperature-unit');
+            const windUnit     = this._settings.get_string('wind-unit');
+            const pressureUnit = this._settings.get_string('pressure-unit');
+            const airnowKey    = this._settings.get_string('airnow-api-key').trim();
 
-            let pollen = pollenFresh ? this._cachedPollen : null;
-            if (!pollenFresh) {
-                pollen = await fetchAmbeePollen(this._lat, this._lon, ambeeKey);
-                this._cachedPollen    = pollen;
-                this._lastPollenFetch = Date.now();
+            let airNowData = aqFresh ? this._cachedAq : null;
+            if (!aqFresh) {
+                airNowData        = await fetchAirNow(this._lat, this._lon, airnowKey);
+                this._cachedAq    = airNowData;
+                this._lastAqFetch = Date.now();
             }
 
             let parsed;
             if (weatherFresh) {
                 parsed = this._cachedParsed;
-                parsed.allergens = {...parsed.allergens,
-                    treeRisk:   pollen?.treeRisk   ?? null,
-                    grassRisk:  pollen?.grassRisk  ?? null,
-                    weedRisk:   pollen?.weedRisk   ?? null,
-                    treeCount:  pollen?.treeCount  ?? null,
-                    grassCount: pollen?.grassCount ?? null,
-                    weedCount:  pollen?.weedCount  ?? null,
-                };
+                parsed.airquality.airnow = airNowData;
             } else {
                 const [aqData, alerts] = await Promise.all([
                     fetchJSON(buildAirQualityUrl(this._lat, this._lon)).catch(() => null),
@@ -776,12 +786,13 @@ class WeatherIndicator extends PanelMenu.Button {
                     const key = this._settings.get_string('weatherapi-key').trim();
                     if (!key) throw new Error('WeatherAPI key missing — add it in Preferences.');
                     const raw = await fetchWeatherAPI(this._lat, this._lon, key);
-                    parsed = parseWeatherAPI(raw, aqData, pollen, unit);
+                    parsed = parseWeatherAPI(raw, aqData, windUnit, pressureUnit, unit);
                 } else {
                     const raw = await fetchJSON(buildOpenMeteoUrl(this._lat, this._lon, unit));
-                    parsed = parseOpenMeteo(raw, aqData, pollen, unit);
+                    parsed = parseOpenMeteo(raw, aqData, windUnit, pressureUnit, unit);
                 }
 
+                parsed.airquality.airnow = airNowData;
                 parsed.alerts = alerts;
 
                 if (this._settings.get_boolean('location-auto')) {

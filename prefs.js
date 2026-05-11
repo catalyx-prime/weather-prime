@@ -40,7 +40,7 @@ function geocodeSearch(query) {
 export default class WeatherPrimePreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const settings = this.getSettings();
-        window.set_default_size(580, 680);
+        window.set_default_size(580, 720);
 
         window.add(this._locationPage(settings));
         window.add(this._apiPage(settings));
@@ -85,9 +85,9 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         searchRow.add_suffix(searchBtn);
         manualGroup.add(searchRow);
 
-        const resultsRow  = new Adw.ActionRow({title: 'Results', visible: false});
+        const resultsRow   = new Adw.ActionRow({title: 'Results', visible: false});
         const resultsCombo = new Gtk.ComboBoxText({valign: Gtk.Align.CENTER, hexpand: true});
-        const applyBtn    = new Gtk.Button({
+        const applyBtn     = new Gtk.Button({
             label:       'Use',
             valign:      Gtk.Align.CENTER,
             css_classes: ['suggested-action'],
@@ -174,7 +174,7 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         });
 
         const sourceGroup = new Adw.PreferencesGroup({
-            title:       'Data Source',
+            title:       'Weather Data Source',
             description: 'Open-Meteo is free and requires no API key. WeatherAPI.com requires a free account.',
         });
 
@@ -204,18 +204,18 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         sourceGroup.add(wApiKeyRow);
         page.add(sourceGroup);
 
-        const pollenGroup = new Adw.PreferencesGroup({
-            title:       'Pollen Data',
-            description: 'Ambee provides tree/grass/weed pollen data globally. Free tier: 100 calls/day. Get a key at ambeedata.com.',
+        const aqGroup = new Adw.PreferencesGroup({
+            title:       'Air Quality Data',
+            description: 'AirNow provides US EPA air quality index data (ozone, PM2.5, PM10, CO, SO2). Free — register at airnowapi.org. Without a key, basic PM2.5/PM10 from Open-Meteo is shown.',
         });
-        const ambeeKeyRow = new Adw.PasswordEntryRow({
-            title:             'Ambee API key',
+        const airnowKeyRow = new Adw.PasswordEntryRow({
+            title:             'AirNow API key',
             show_apply_button: true,
         });
-        ambeeKeyRow.set_text(settings.get_string('ambee-api-key'));
-        ambeeKeyRow.connect('apply', () => settings.set_string('ambee-api-key', ambeeKeyRow.get_text()));
-        pollenGroup.add(ambeeKeyRow);
-        page.add(pollenGroup);
+        airnowKeyRow.set_text(settings.get_string('airnow-api-key'));
+        airnowKeyRow.connect('apply', () => settings.set_string('airnow-api-key', airnowKeyRow.get_text()));
+        aqGroup.add(airnowKeyRow);
+        page.add(aqGroup);
 
         const fetchOptions = [
             {label: 'Every 15 minutes', minutes: 15},
@@ -228,9 +228,7 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         ];
 
         const makeFreqRow = (title, subtitle, key) => {
-            const row = new Adw.ComboRow({
-                title,
-                subtitle,
+            const row = new Adw.ComboRow({title, subtitle,
                 model: Gtk.StringList.new(fetchOptions.map(o => o.label)),
             });
             const saved = settings.get_int(key);
@@ -244,8 +242,8 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         };
 
         const fetchGroup = new Adw.PreferencesGroup({title: 'API Call Frequency'});
-        fetchGroup.add(makeFreqRow('Weather data', 'How often to fetch weather, air quality and alerts', 'fetch-interval'));
-        fetchGroup.add(makeFreqRow('Pollen data',  'How often to call the Ambee pollen API (free tier: 100 calls/day)', 'pollen-fetch-interval'));
+        fetchGroup.add(makeFreqRow('Weather data',     'How often to fetch weather, forecasts and alerts', 'fetch-interval'));
+        fetchGroup.add(makeFreqRow('Air quality data', 'How often to call the AirNow API',                 'aq-fetch-interval'));
         page.add(fetchGroup);
 
         return page;
@@ -257,19 +255,43 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
             icon_name: 'weather-clear-symbolic',
         });
 
-        const group   = new Adw.PreferencesGroup({title: 'Temperature'});
-        const unitRow = new Adw.ComboRow({
-            title: 'Temperature unit',
-            model: Gtk.StringList.new(['Fahrenheit (°F)', 'Celsius (°C)']),
-        });
-        const currentUnit = settings.get_string('temperature-unit');
-        unitRow.set_selected(currentUnit === 'celsius' ? 1 : 0);
-        unitRow.connect('notify::selected', () => {
-            settings.set_string('temperature-unit', unitRow.get_selected() === 1 ? 'celsius' : 'fahrenheit');
-        });
+        const makeComboRow = (title, subtitle, key, options) => {
+            const labels  = options.map(o => o.label);
+            const values  = options.map(o => o.value);
+            const row     = new Adw.ComboRow({title, subtitle,
+                model: Gtk.StringList.new(labels),
+            });
+            const current = settings.get_string(key);
+            const idx     = values.indexOf(current);
+            row.set_selected(idx >= 0 ? idx : 0);
+            row.connect('notify::selected', () => {
+                settings.set_string(key, values[row.get_selected()] ?? values[0]);
+            });
+            return row;
+        };
 
-        group.add(unitRow);
-        page.add(group);
+        const tempGroup = new Adw.PreferencesGroup({title: 'Temperature'});
+        tempGroup.add(makeComboRow('Temperature', 'Unit for all temperature values', 'temperature-unit', [
+            {label: 'Fahrenheit (°F)', value: 'fahrenheit'},
+            {label: 'Celsius (°C)',    value: 'celsius'},
+        ]));
+        page.add(tempGroup);
+
+        const windGroup = new Adw.PreferencesGroup({title: 'Wind Speed'});
+        windGroup.add(makeComboRow('Wind speed', 'Unit for wind speed in current conditions', 'wind-unit', [
+            {label: 'mph',  value: 'mph'},
+            {label: 'km/h', value: 'kmh'},
+            {label: 'm/s',  value: 'ms'},
+        ]));
+        page.add(windGroup);
+
+        const pressGroup = new Adw.PreferencesGroup({title: 'Pressure'});
+        pressGroup.add(makeComboRow('Pressure', 'Unit for barometric pressure', 'pressure-unit', [
+            {label: 'hPa (mb)', value: 'hpa'},
+            {label: 'inHg',     value: 'inhg'},
+            {label: 'mmHg',     value: 'mmhg'},
+        ]));
+        page.add(pressGroup);
 
         return page;
     }
