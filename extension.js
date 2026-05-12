@@ -182,7 +182,7 @@ function buildOpenMeteoUrl(lat, lon, unit) {
             'temperature_2m', 'apparent_temperature', 'relative_humidity_2m',
             'wind_speed_10m', 'wind_direction_10m', 'weather_code', 'surface_pressure',
         ].join(','),
-        hourly:           'temperature_2m,weather_code,surface_pressure',
+        hourly:           'temperature_2m,weather_code,surface_pressure,precipitation_probability',
         daily:            'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
         temperature_unit: tu,
         wind_speed_unit:  'mph',
@@ -215,9 +215,10 @@ function parseOpenMeteo(data, aqData, windUnit, pressureUnit, unit) {
         else break;
     }
     const hourly = h.time.slice(hi, hi + 12).map((t, idx) => ({
-        time: shortHour(t),
-        temp: fmt(h.temperature_2m[hi + idx], unit),
-        icon: wmo(h.weather_code[hi + idx]).icon,
+        time:   shortHour(t),
+        temp:   fmt(h.temperature_2m[hi + idx], unit),
+        icon:   wmo(h.weather_code[hi + idx]).icon,
+        precip: `${h.precipitation_probability[hi + idx] ?? 0}%`,
     }));
 
     const daily = d.time.map((t, i) => ({
@@ -288,9 +289,10 @@ function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit) {
         else break;
     }
     const hourly = allHours.slice(hi, hi + 12).map(h => ({
-        time: shortHour(h.time),
-        temp: `${Math.round(isF ? h.temp_f : h.temp_c)}°${isF ? 'F' : 'C'}`,
-        icon: wApiIcon(h.condition.text, h.is_day),
+        time:   shortHour(h.time),
+        temp:   `${Math.round(isF ? h.temp_f : h.temp_c)}°${isF ? 'F' : 'C'}`,
+        icon:   wApiIcon(h.condition.text, h.is_day),
+        precip: `${h.chance_of_rain ?? 0}%`,
     }));
 
     const daily = data.forecast.forecastday.map(day => ({
@@ -435,14 +437,14 @@ class WeatherPanel {
             style_class: 'wp-icon-btn',
             reactive:    true,
         });
-        this._refreshBtn.connect('clicked', () => this._refreshCb?.());
+        this._refreshSignalId = this._refreshBtn.connect('clicked', () => this._refreshCb?.());
 
         this._settingsBtn = new St.Button({
             label:       '⚙',
             style_class: 'wp-icon-btn wp-settings-btn',
             reactive:    true,
         });
-        this._settingsBtn.connect('clicked', () => this._settingsCb?.());
+        this._settingsSignalId = this._settingsBtn.connect('clicked', () => this._settingsCb?.());
 
         header.add_child(this._locationLbl);
         header.add_child(spacer());
@@ -457,7 +459,8 @@ class WeatherPanel {
 
         // ── Tab bar ───────────────────────────────────────────────────────
         const tabBar = hbox('wp-tab-bar');
-        this._tabBtns = {};
+        this._tabBtns      = {};
+        this._tabSignalIds = {};
         [
             ['current',    'Now'],
             ['hourly',     'Hourly'],
@@ -471,7 +474,7 @@ class WeatherPanel {
                 reactive:    true,
                 can_focus:   true,
             });
-            btn.connect('clicked', () => this._selectTab(id));
+            this._tabSignalIds[id] = btn.connect('clicked', () => this._selectTab(id));
             this._tabBtns[id] = btn;
             tabBar.add_child(btn);
         });
@@ -497,6 +500,33 @@ class WeatherPanel {
             else            btn.remove_style_class_name('active');
         });
         this._render();
+    }
+
+    destroy() {
+        if (this._refreshSignalId) {
+            this._refreshBtn.disconnect(this._refreshSignalId);
+            this._refreshSignalId = null;
+        }
+        if (this._settingsSignalId) {
+            this._settingsBtn.disconnect(this._settingsSignalId);
+            this._settingsSignalId = null;
+        }
+        Object.entries(this._tabSignalIds ?? {}).forEach(([id, sid]) => {
+            this._tabBtns[id]?.disconnect(sid);
+        });
+        this._tabSignalIds = null;
+        this._tabBtns      = null;
+        this._refreshBtn?.destroy();
+        this._refreshBtn   = null;
+        this._settingsBtn?.destroy();
+        this._settingsBtn  = null;
+        this._scroll?.destroy();
+        this._scroll       = null;
+        this._locationLbl  = null;
+        this._alertsBanner = null;
+        this._content      = null;
+        this.actor.destroy();
+        this.actor = null;
     }
 
     onRefresh(cb)  { this._refreshCb  = cb; }
@@ -587,10 +617,11 @@ class WeatherPanel {
         const box = vbox('wp-hourly');
         this._data.hourly.forEach(h => {
             const row = hbox('wp-hour-row');
-            row.add_child(label(h.time, 'wp-hour-time'));
-            row.add_child(label(h.icon, 'wp-hour-icon'));
+            row.add_child(label(h.time,          'wp-hour-time'));
+            row.add_child(label(h.icon,          'wp-hour-icon'));
             row.add_child(spacer());
-            row.add_child(label(h.temp, 'wp-hour-temp'));
+            row.add_child(label(h.temp,          'wp-hour-temp'));
+            row.add_child(label(`💧${h.precip}`, 'wp-hour-precip'));
             box.add_child(row);
         });
         this._content.add_child(box);
@@ -600,13 +631,13 @@ class WeatherPanel {
         const box = vbox('wp-daily');
         this._data.daily.forEach(d => {
             const row = hbox('wp-day-row');
-            row.add_child(label(d.day,   'wp-day-name'));
-            row.add_child(label(d.icon,  'wp-day-icon'));
+            row.add_child(label(d.day,           'wp-day-name'));
+            row.add_child(label(d.icon,          'wp-day-icon'));
             row.add_child(spacer());
-            row.add_child(label(d.hi,    'wp-day-hi'));
-            row.add_child(label(' / ',   'wp-day-sep'));
-            row.add_child(label(d.lo,    'wp-day-lo'));
-            row.add_child(label(`  💧${d.precip}`, 'wp-day-precip'));
+            row.add_child(label(d.hi,            'wp-day-hi'));
+            row.add_child(label(' / ',           'wp-day-sep'));
+            row.add_child(label(d.lo,            'wp-day-lo'));
+            row.add_child(label(`💧${d.precip}`, 'wp-day-precip'));
             box.add_child(row);
         });
         this._content.add_child(box);
@@ -721,7 +752,7 @@ class WeatherIndicator extends PanelMenu.Button {
         section.actor.add_child(this._panel.actor);
         this.menu.addMenuItem(section);
 
-        this.menu.connect('open-state-changed', (_m, open) => {
+        this._menuSignalId = this.menu.connect('open-state-changed', (_m, open) => {
             if (open) this._fetch(false);
         });
 
@@ -901,12 +932,18 @@ class WeatherIndicator extends PanelMenu.Button {
     }
 
     destroy() {
+        if (this._menuSignalId) {
+            this.menu.disconnect(this._menuSignalId);
+            this._menuSignalId = null;
+        }
         if (this._timer)      { GLib.source_remove(this._timer); this._timer = null; }
         if (this._settingsId) { this._settings.disconnect(this._settingsId); this._settingsId = null; }
         if (this._ifaceSettings && this._ifaceSettingsId) {
             this._ifaceSettings.disconnect(this._ifaceSettingsId);
             this._ifaceSettings = null;
         }
+        this._panel?.destroy();
+        this._panel = null;
         super.destroy();
     }
 });
