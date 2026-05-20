@@ -178,8 +178,8 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         });
 
         const sourceGroup = new Adw.PreferencesGroup({
-            title:       'Fallback Weather Provider',
-            description: 'Used only when no WeatherAI.io key is set. Open-Meteo is free and needs no key. WeatherAPI.com requires a free account.',
+            title:       'Weather Provider',
+            description: 'Source for current conditions, hourly, and 7-day forecast. Open-Meteo is free and needs no key. WeatherAPI.com requires a free account.',
         });
 
         const providers = ['open-meteo', 'weatherapi'];
@@ -219,8 +219,8 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         page.add(sourceGroup);
 
         const waiGroup = new Adw.PreferencesGroup({
-            title:       'WeatherAI.io (Primary)',
-            description: 'When a key is set, WeatherAI.io supplies current conditions, hourly forecast, 7-day forecast, and the Astronomy tab. Open-Meteo is always fetched alongside to backfill any field WeatherAI.io does not return. If the key is missing, the fallback provider above is used and Astronomy is hidden.',
+            title:       'WeatherAI.io (Astronomy)',
+            description: 'When a key is set, WeatherAI.io powers the Astronomy tab (sunrise/sunset, moon phase, illumination). If the key is missing, the Astronomy tab is hidden. Forecast data always comes from the Weather Provider above.',
         });
         const waiKeyRow = new Adw.PasswordEntryRow({
             title:             'WeatherAI.io key',
