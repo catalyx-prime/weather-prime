@@ -284,15 +284,25 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
             {label: 'Once a day',       minutes: 1440},
         ];
 
-        const makeFreqRow = (title, subtitle, key) => {
+        // RainViewer publishes new radar frames every 10 minutes, so 10 min is
+        // the floor — polling more often just refetches identical data.
+        const radarOptions = [
+            {label: 'Every 10 minutes', minutes: 10},
+            {label: 'Every 15 minutes', minutes: 15},
+            {label: 'Every 30 minutes', minutes: 30},
+            {label: 'Every hour',       minutes: 60},
+            {label: 'Every 3 hours',    minutes: 180},
+        ];
+
+        const makeFreqRow = (title, subtitle, key, options = fetchOptions) => {
             const row = new Adw.ComboRow({title, subtitle,
-                model: Gtk.StringList.new(fetchOptions.map(o => o.label)),
+                model: Gtk.StringList.new(options.map(o => o.label)),
             });
             const saved = settings.get_int(key);
-            const idx   = fetchOptions.findIndex(o => o.minutes === saved);
-            row.set_selected(idx >= 0 ? idx : fetchOptions.length - 1);
+            const idx   = options.findIndex(o => o.minutes === saved);
+            row.set_selected(idx >= 0 ? idx : options.length - 1);
             row.connect('notify::selected', () => {
-                const opt = fetchOptions[row.get_selected()];
+                const opt = options[row.get_selected()];
                 if (opt) settings.set_int(key, opt.minutes);
             });
             return row;
@@ -301,6 +311,7 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         const fetchGroup = new Adw.PreferencesGroup({title: 'API Call Frequency'});
         fetchGroup.add(makeFreqRow('Weather data',     'How often to fetch weather, forecasts and alerts', 'fetch-interval'));
         fetchGroup.add(makeFreqRow('Air quality data', 'How often to refresh the AQI source',             'aq-fetch-interval'));
+        fetchGroup.add(makeFreqRow('Radar overlay',    'How often to refresh the RainViewer radar on the Map tab (10 min minimum — that is the provider’s refresh cadence)', 'map-fetch-interval', radarOptions));
         page.add(fetchGroup);
 
         return page;

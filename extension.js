@@ -559,6 +559,10 @@ async function fetchOpenWeatherAirPollution(lat, lon, key) {
 const MAP_ZOOM = 7;
 const MAP_TILE_SIZE = 256;
 
+// RainViewer publishes new radar frames every 10 minutes — polling more often
+// just refetches the same data and is wasted on the provider's bandwidth.
+const RADAR_MIN_INTERVAL_MIN = 10;
+
 const MAP_WEBSITES = {
     'windy':        {label: 'Windy.com',      url: (lat, lon, z) => `https://www.windy.com/?${lat},${lon},${z}`},
     'zoom-earth':   {label: 'Zoom Earth',     url: (lat, lon, z) => `https://zoom.earth/maps/precipitation/#view=${lat},${lon},${z}z`},
@@ -1247,6 +1251,10 @@ class WeatherIndicator extends PanelMenu.Button {
         this._lastFetch    = 0;
         this._cachedAq     = null;
         this._lastAqFetch  = 0;
+        this._cachedMap    = null;
+        this._lastMapFetch = 0;
+        this._cachedLat    = null;
+        this._cachedLon    = null;
 
         // System interface settings for auto color-scheme detection
         try {
@@ -1292,6 +1300,8 @@ class WeatherIndicator extends PanelMenu.Button {
             this._lastFetch    = 0;
             this._cachedAq     = null;
             this._lastAqFetch  = 0;
+            this._cachedMap    = null;
+            this._lastMapFetch = 0;
             this._panel.setMapWebsite(this._settings.get_string('map-website'));
             this._updateTheme();
             this._restartTimer();
@@ -1333,7 +1343,8 @@ class WeatherIndicator extends PanelMenu.Button {
     _startTimer() {
         const weatherMins = Math.max(5, this._settings.get_int('fetch-interval'));
         const aqMins      = Math.max(5, this._settings.get_int('aq-fetch-interval'));
-        const secs = Math.min(weatherMins, aqMins) * 60;
+        const mapMins     = Math.max(RADAR_MIN_INTERVAL_MIN, this._settings.get_int('map-fetch-interval'));
+        const secs = Math.min(weatherMins, aqMins, mapMins) * 60;
         this._timer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, secs, () => {
             this._fetch(false);
             return GLib.SOURCE_CONTINUE;
@@ -1384,25 +1395,39 @@ class WeatherIndicator extends PanelMenu.Button {
 
     async _fetch(force = false) {
         if (this._busy) return;
-
-        const now          = Date.now();
-        const weatherMs    = Math.max(5, this._settings.get_int('fetch-interval')) * 60 * 1000;
-        const aqMs         = Math.max(5, this._settings.get_int('aq-fetch-interval')) * 60 * 1000;
-        const weatherFresh = !force && this._cachedParsed && (now - this._lastFetch) < weatherMs;
-        const aqFresh      = !force && this._lastAqFetch > 0 && (now - this._lastAqFetch) < aqMs;
-
-        if (weatherFresh && aqFresh) {
-            if (this._locName) this._panel.setLocation(this._locName);
-            this._panel.setData(this._cachedParsed);
-            return;
-        }
-
         this._busy = true;
-        if (!weatherFresh) this._panel.setLoading();
 
         try {
+            // Resolve location first so we can detect when GeoClue (or manual
+            // settings) moved us, even when cached weather is otherwise fresh.
             await this._resolveLocation();
             this._panel.setLocation(this._locName);
+
+            const locChanged = this._cachedLat != null &&
+                (this._lat !== this._cachedLat || this._lon !== this._cachedLon);
+            if (locChanged) {
+                this._cachedParsed = null;
+                this._lastFetch    = 0;
+                this._cachedAq     = null;
+                this._lastAqFetch  = 0;
+                this._cachedMap    = null;
+                this._lastMapFetch = 0;
+            }
+
+            const now          = Date.now();
+            const weatherMs    = Math.max(5, this._settings.get_int('fetch-interval')) * 60 * 1000;
+            const aqMs         = Math.max(5, this._settings.get_int('aq-fetch-interval')) * 60 * 1000;
+            const mapMs        = Math.max(RADAR_MIN_INTERVAL_MIN, this._settings.get_int('map-fetch-interval')) * 60 * 1000;
+            const weatherFresh = !force && this._cachedParsed && (now - this._lastFetch) < weatherMs;
+            const aqFresh      = !force && this._cachedAq && (now - this._lastAqFetch) < aqMs;
+            const mapFresh     = !force && this._cachedMap && (now - this._lastMapFetch) < mapMs;
+
+            if (weatherFresh && aqFresh && mapFresh) {
+                this._panel.setData(this._cachedParsed);
+                return;
+            }
+
+            if (!weatherFresh) this._panel.setLoading();
 
             const provider     = this._settings.get_string('api-provider');
             const unit         = this._settings.get_string('temperature-unit');
@@ -1429,15 +1454,28 @@ class WeatherIndicator extends PanelMenu.Button {
                 this._lastAqFetch = Date.now();
             }
 
+            let mapTiles = mapFresh ? this._cachedMap : null;
+            if (!mapFresh) {
+                mapTiles = await fetchMapTiles(this._lat, this._lon).catch(e => {
+                    console.error('[WeatherPrime] map tile fetch failed:', e.message);
+                    return null;
+                });
+                if (mapTiles) {
+                    this._cachedMap    = mapTiles;
+                    this._lastMapFetch = Date.now();
+                }
+            }
+
             let parsed;
             if (weatherFresh) {
                 parsed = this._cachedParsed;
                 parsed.airquality.airnow      = aqResult.airnow;
                 parsed.airquality.openweather = aqResult.openweather;
+                if (mapTiles) parsed.map = mapTiles;
             } else {
                 const waiKey = this._settings.get_string('weatherai-key').trim();
 
-                const [aqData, alerts, waiAstroRaw, mapTiles] = await Promise.all([
+                const [aqData, alerts, waiAstroRaw] = await Promise.all([
                     fetchJSON(buildAirQualityUrl(this._lat, this._lon)).catch(() => null),
                     fetchAlerts(this._lat, this._lon),
                     waiKey
@@ -1446,10 +1484,6 @@ class WeatherIndicator extends PanelMenu.Button {
                             return null;
                         })
                         : Promise.resolve(null),
-                    fetchMapTiles(this._lat, this._lon).catch(e => {
-                        console.error('[WeatherPrime] map tile fetch failed:', e.message);
-                        return null;
-                    }),
                 ]);
 
                 if (provider === 'weatherapi') {
@@ -1486,6 +1520,9 @@ class WeatherIndicator extends PanelMenu.Button {
                 this._cachedParsed = parsed;
                 this._lastFetch    = Date.now();
             }
+
+            this._cachedLat = this._lat;
+            this._cachedLon = this._lon;
 
             const alerts = parsed.alerts ?? [];
             this._pillIcon.set_text(parsed.current.icon);
