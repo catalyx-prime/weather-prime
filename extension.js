@@ -810,6 +810,11 @@ class WeatherPanel {
         } else {
             this._scroll.remove_style_class_name('wp-scroll-tall');
         }
+        if (id === 'airquality') {
+            this._scroll.add_style_class_name('wp-scroll-auto');
+        } else {
+            this._scroll.remove_style_class_name('wp-scroll-auto');
+        }
         this._render();
     }
 

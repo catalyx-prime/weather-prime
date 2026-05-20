@@ -148,6 +148,10 @@
     max-height: 480px;
 }
 
+.wp-scroll.wp-scroll-auto {
+    max-height: 9999px;
+}
+
 .wp-content {
     padding: 10px 14px 12px;
     spacing: 6px;
@@ -671,6 +675,10 @@
 
 .wp-panel.wp-large .wp-scroll.wp-scroll-tall {
     max-height: 680px;
+}
+
+.wp-panel.wp-large .wp-scroll.wp-scroll-auto {
+    max-height: 9999px;
 }
 
 .wp-panel.wp-large .wp-content {
