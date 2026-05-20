@@ -1,6 +1,6 @@
 {
   "name": "Weather Prime",
-  "description": "Top-bar weather pill with current conditions, hourly & 7-day forecasts, air quality (AirNow/Open-Meteo), NWS alerts, pressure trend, and light/dark mode. Free with no API key required.",
+  "description": "A beautifully crafted weather companion that lives in your top bar. Glance up for current conditions, then dive into rich hourly and 7-day forecasts, real-time air quality from AirNow (US) or Open-Meteo (worldwide), live NWS severe weather alerts, and a smart pressure trend indicator that hints at incoming weather. Auto-detects your location via GeoClue2 or set it manually, refreshes on your schedule, and adapts to light or dark themes automatically. Works out of the box — no API keys, no signup, no fees. Optional WeatherAPI.com and AirNow keys unlock additional data sources for power users.",
   "uuid": "weather-prime@weather-prime",
   "version": 4,
   "shell-version": ["50"],
