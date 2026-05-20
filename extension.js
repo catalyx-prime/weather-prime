@@ -1030,6 +1030,12 @@ class WeatherIndicator extends PanelMenu.Button {
             this._panel.actor.add_style_class_name('wp-light');
         else
             this._panel.actor.remove_style_class_name('wp-light');
+
+        const isLarge = this._settings.get_string('panel-size') === 'large';
+        if (isLarge)
+            this._panel.actor.add_style_class_name('wp-large');
+        else
+            this._panel.actor.remove_style_class_name('wp-large');
     }
 
     _startTimer() {

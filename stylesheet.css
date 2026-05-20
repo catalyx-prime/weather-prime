@@ -561,3 +561,280 @@
 .wp-panel.wp-light .wp-astro-phase-illum {
     color: rgba(0, 0, 0, 0.5);
 }
+
+/* ── Large size overrides (1.5×) ─────────────────────────────────────────── */
+
+.wp-panel.wp-large {
+    min-width: 561px;
+    max-width: 561px;
+}
+
+.wp-panel.wp-large .wp-header {
+    padding: 15px 21px 12px;
+}
+
+.wp-panel.wp-large .wp-location {
+    font-size: 20px;
+}
+
+.wp-panel.wp-large .wp-icon-btn,
+.wp-panel.wp-large .wp-refresh-btn {
+    font-size: 23px;
+    padding: 0 6px;
+}
+
+.wp-panel.wp-large .wp-settings-btn {
+    font-size: 33px;
+}
+
+.wp-panel.wp-large .wp-alerts-banner {
+    padding: 9px 21px 9px;
+    spacing: 6px;
+}
+
+.wp-panel.wp-large .wp-alert-item {
+    padding: 5px 0;
+}
+
+.wp-panel.wp-large .wp-alert-title-row {
+    spacing: 9px;
+}
+
+.wp-panel.wp-large .wp-alert-badge {
+    font-size: 21px;
+}
+
+.wp-panel.wp-large .wp-alert-event {
+    font-size: 18px;
+}
+
+.wp-panel.wp-large .wp-alert-headline {
+    font-size: 17px;
+}
+
+.wp-panel.wp-large .wp-tab-bar {
+    padding: 9px 15px 6px;
+    spacing: 6px;
+}
+
+.wp-panel.wp-large .wp-tab {
+    font-size: 17px;
+    padding: 6px 9px;
+    border-radius: 12px;
+}
+
+.wp-panel.wp-large .wp-scroll {
+    max-height: 480px;
+}
+
+.wp-panel.wp-large .wp-content {
+    padding: 15px 21px 18px;
+    spacing: 9px;
+}
+
+.wp-panel.wp-large .wp-status,
+.wp-panel.wp-large .wp-error-msg {
+    font-size: 18px;
+    padding: 30px 0;
+}
+
+.wp-panel.wp-large .wp-error-icon {
+    font-size: 36px;
+    padding: 15px 0 6px;
+}
+
+.wp-panel.wp-large .wp-current {
+    spacing: 15px;
+}
+
+.wp-panel.wp-large .wp-current-top {
+    spacing: 18px;
+    padding-bottom: 6px;
+}
+
+.wp-panel.wp-large .wp-cur-icon {
+    font-size: 63px;
+    min-width: 78px;
+}
+
+.wp-panel.wp-large .wp-cur-right {
+    spacing: 3px;
+}
+
+.wp-panel.wp-large .wp-cur-temp {
+    font-size: 45px;
+}
+
+.wp-panel.wp-large .wp-cur-desc {
+    font-size: 20px;
+}
+
+.wp-panel.wp-large .wp-detail-grid {
+    spacing: 6px;
+}
+
+.wp-panel.wp-large .wp-detail-cell {
+    border-radius: 12px;
+    padding: 9px 12px;
+    spacing: 3px;
+}
+
+.wp-panel.wp-large .wp-detail-key {
+    font-size: 15px;
+}
+
+.wp-panel.wp-large .wp-detail-val {
+    font-size: 18px;
+}
+
+.wp-panel.wp-large .wp-hourly {
+    spacing: 3px;
+}
+
+.wp-panel.wp-large .wp-hour-row {
+    padding: 8px 6px;
+    border-radius: 9px;
+    spacing: 9px;
+}
+
+.wp-panel.wp-large .wp-hour-time {
+    font-size: 18px;
+    min-width: 54px;
+}
+
+.wp-panel.wp-large .wp-hour-icon {
+    font-size: 21px;
+}
+
+.wp-panel.wp-large .wp-hour-temp {
+    font-size: 20px;
+    min-width: 78px;
+}
+
+.wp-panel.wp-large .wp-hour-humidity {
+    font-size: 17px;
+    min-width: 72px;
+}
+
+.wp-panel.wp-large .wp-hour-precip {
+    font-size: 17px;
+    min-width: 78px;
+}
+
+.wp-panel.wp-large .wp-hour-wind {
+    font-size: 17px;
+    min-width: 66px;
+}
+
+.wp-panel.wp-large .wp-hour-header-row {
+    padding: 8px 6px;
+    spacing: 9px;
+}
+
+.wp-panel.wp-large .wp-daily {
+    spacing: 3px;
+}
+
+.wp-panel.wp-large .wp-day-row {
+    padding: 9px 6px;
+    border-radius: 9px;
+    spacing: 6px;
+}
+
+.wp-panel.wp-large .wp-day-name {
+    font-size: 18px;
+    min-width: 60px;
+}
+
+.wp-panel.wp-large .wp-day-icon {
+    font-size: 21px;
+    min-width: 33px;
+}
+
+.wp-panel.wp-large .wp-day-hi {
+    font-size: 18px;
+    min-width: 63px;
+}
+
+.wp-panel.wp-large .wp-day-sep {
+    font-size: 18px;
+}
+
+.wp-panel.wp-large .wp-day-lo {
+    font-size: 18px;
+    min-width: 63px;
+}
+
+.wp-panel.wp-large .wp-day-humidity {
+    font-size: 17px;
+    min-width: 72px;
+}
+
+.wp-panel.wp-large .wp-day-precip {
+    font-size: 17px;
+    min-width: 78px;
+}
+
+.wp-panel.wp-large .wp-day-wind {
+    font-size: 17px;
+    min-width: 66px;
+}
+
+.wp-panel.wp-large .wp-day-header-row {
+    padding: 9px 6px;
+    spacing: 6px;
+}
+
+.wp-panel.wp-large .wp-col-header {
+    font-size: 15px;
+}
+
+.wp-panel.wp-large .wp-allergens {
+    spacing: 6px;
+}
+
+.wp-panel.wp-large .wp-section-title {
+    font-size: 17px;
+    padding-bottom: 6px;
+    padding-top: 9px;
+}
+
+.wp-panel.wp-large .wp-allergen-row {
+    padding: 8px 6px;
+    border-radius: 9px;
+    spacing: 6px;
+}
+
+.wp-panel.wp-large .wp-allergen-name {
+    font-size: 18px;
+}
+
+.wp-panel.wp-large .wp-allergen-val {
+    font-size: 17px;
+}
+
+.wp-panel.wp-large .wp-astronomy {
+    spacing: 12px;
+}
+
+.wp-panel.wp-large .wp-astro-phase-row {
+    padding: 12px 6px;
+    spacing: 18px;
+}
+
+.wp-panel.wp-large .wp-astro-phase-icon {
+    font-size: 54px;
+    min-width: 72px;
+}
+
+.wp-panel.wp-large .wp-astro-phase-right {
+    spacing: 3px;
+}
+
+.wp-panel.wp-large .wp-astro-phase-name {
+    font-size: 20px;
+}
+
+.wp-panel.wp-large .wp-astro-phase-illum {
+    font-size: 17px;
+}

@@ -310,6 +310,10 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
             {label: 'Center', value: 'center'},
             {label: 'Right',  value: 'right'},
         ]));
+        appearanceGroup.add(makeComboRow('Panel size', 'Size of the drop-down panel content', 'panel-size', [
+            {label: 'Original',     value: 'original'},
+            {label: 'Large (1.5×)', value: 'large'},
+        ]));
         page.add(appearanceGroup);
 
         const unitsGroup = new Adw.PreferencesGroup({title: 'Units'});
