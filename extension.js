@@ -901,8 +901,8 @@ class WeatherPanel {
 
         const sunGrid = hbox('wp-detail-grid');
         [
-            ['🌅 Sunrise', a.sunrise],
-            ['🌇 Sunset',  a.sunset],
+            ['☀️⬆ Sunrise', a.sunrise],
+            ['☀️⬇ Sunset',  a.sunset],
         ].forEach(([k, v]) => {
             const cell = vbox('wp-detail-cell');
             cell.add_child(label(k, 'wp-detail-key'));
