@@ -191,6 +191,20 @@ function shortDay(s) {
     return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
 }
 
+// Format an ISO-ish "YYYY-MM-DDTHH:MM[...]" string as "h:mm AM/PM" using
+// the literal HH:MM in the string. Avoids timezone surprises from `new Date`
+// when Open-Meteo returns localized timestamps without a UTC offset.
+function formatTime(iso) {
+    if (!iso) return null;
+    const m = String(iso).match(/T?(\d{1,2}):(\d{2})/);
+    if (!m) return null;
+    let h = parseInt(m[1], 10);
+    const mm = m[2];
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return `${h}:${mm} ${ampm}`;
+}
+
 // ── HTTP helper ───────────────────────────────────────────────────────────
 
 let _session = null;
@@ -234,7 +248,7 @@ function buildOpenMeteoUrl(lat, lon, unit) {
             'wind_speed_10m', 'wind_direction_10m', 'weather_code', 'surface_pressure',
         ].join(','),
         hourly:           'temperature_2m,relative_humidity_2m,weather_code,surface_pressure,precipitation_probability,wind_speed_10m,wind_direction_10m',
-        daily:            'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant',
+        daily:            'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset',
         temperature_unit: tu,
         wind_speed_unit:  'mph',
         timezone:         'auto',
@@ -441,19 +455,115 @@ function parseWeatherAiAstronomy(data) {
     };
 }
 
+// Each WeatherAI parser returns formatted strings OR null for fields the
+// response didn't supply. Null markers let the merge helpers below pull a
+// value from the Open-Meteo backfill on a per-field basis.
+
+function parseWeatherAiCurrent(forecastData, unit, windUnit, pressureUnit) {
+    const c = forecastData?.current ?? forecastData?.currentCondition ?? null;
+    if (!c) return null;
+
+    const isF     = unit === 'fahrenheit';
+    const tk      = isF ? 'fahrenheit' : 'celsius';
+    const tempSym = isF ? '°F' : '°C';
+    const fmtT    = v => v == null ? null : `${Math.round(v)}${tempSym}`;
+
+    const tempNum = waiNum(c.temperature, tk)
+                 ?? (typeof c.temperature === 'number' ? c.temperature : null)
+                 ?? (isF ? c.temp_f : c.temp_c) ?? null;
+    const feelsObj = c.feelsLike ?? c.feels_like ?? c.apparentTemperature ?? c.apparent_temperature;
+    const feelsNum = waiNum(feelsObj, tk)
+                  ?? (typeof feelsObj === 'number' ? feelsObj : null)
+                  ?? (isF ? c.feelslike_f : c.feelslike_c) ?? null;
+
+    const humidity = typeof c.humidity === 'number' ? c.humidity : null;
+
+    const windMph = waiNum(c.wind?.speed, 'mph')
+                 ?? (typeof c.wind?.speed === 'number' ? c.wind.speed : null)
+                 ?? waiNum(c.windSpeed, 'mph')
+                 ?? (typeof c.wind_mph === 'number' ? c.wind_mph : null);
+    const windDegRaw = c.wind?.direction ?? c.windDirection ?? c.wind_dir ?? null;
+    const windDegNum = typeof windDegRaw === 'number' ? windDegRaw : cardinalToDeg(windDegRaw);
+
+    const pressureHpa = waiNum(c.pressure, 'hpa')
+                     ?? waiNum(c.pressure, 'mb')
+                     ?? (typeof c.pressure === 'number' ? c.pressure : null)
+                     ?? (typeof c.pressure_mb === 'number' ? c.pressure_mb : null);
+
+    const condText = c.condition?.text ?? c.weather?.text ?? '';
+    const isDay    = c.isDay ?? c.is_day ?? 1;
+
+    return {
+        temp:      fmtT(tempNum),
+        feelsLike: fmtT(feelsNum),
+        humidity:  humidity != null ? `${Math.round(humidity)}%` : null,
+        wind:      windMph != null ? fmtWind(windMph, windDir(windDegNum), windUnit) : null,
+        pressure:  pressureHpa != null ? fmtPressure(pressureHpa, pressureUnit) : null,
+        icon:      condText ? wApiIcon(condText, isDay) : null,
+        desc:      condText || null,
+    };
+}
+
+function parseWeatherAiHourly(forecastData, unit, windUnit) {
+    const days = forecastData?.forecast ?? [];
+    const allHours = days.flatMap(d => d.hourly ?? d.hour ?? []);
+    if (!allHours.length) return null;
+
+    const isF     = unit === 'fahrenheit';
+    const tk      = isF ? 'fahrenheit' : 'celsius';
+    const tempSym = isF ? '°F' : '°C';
+
+    const hourTime = h => h.time ?? h.timestamp ?? h.timeISO ?? h.date ?? null;
+
+    const now = new Date();
+    let hi = 0;
+    for (let i = 0; i < allHours.length; i++) {
+        const t = hourTime(allHours[i]);
+        if (t && new Date(t) <= now) hi = i;
+        else if (t) break;
+    }
+
+    return allHours.slice(hi, hi + 12).map(h => {
+        const t        = hourTime(h);
+        const tempNum  = waiNum(h.temperature, tk)
+                      ?? (typeof h.temperature === 'number' ? h.temperature : null)
+                      ?? (isF ? h.temp_f : h.temp_c) ?? null;
+        const condText = h.condition?.text ?? h.weather?.text ?? '';
+        const isDay    = h.isDay ?? h.is_day ?? 1;
+        const precip   = h.precipitation?.chanceOfRain ?? h.chance_of_rain ?? null;
+        const humidity = typeof h.humidity === 'number' ? h.humidity : null;
+        const windMph  = waiNum(h.wind?.speed, 'mph')
+                      ?? (typeof h.wind?.speed === 'number' ? h.wind.speed : null)
+                      ?? (typeof h.wind_mph === 'number' ? h.wind_mph : null);
+        const windDegRaw = h.wind?.direction ?? h.wind_dir ?? null;
+        const windDegNum = typeof windDegRaw === 'number' ? windDegRaw : cardinalToDeg(windDegRaw);
+
+        return {
+            time:     t ? shortHour(t) : null,
+            temp:     tempNum != null ? `${Math.round(tempNum)}${tempSym}` : null,
+            icon:     condText ? wApiIcon(condText, isDay) : null,
+            precip:   precip != null ? `${precip}%` : null,
+            humidity: humidity != null ? `${Math.round(humidity)}%` : null,
+            wind:     windMph != null ? fmtWindShort(windMph, windDegNum, windUnit) : null,
+        };
+    });
+}
+
 function parseWeatherAiDaily(forecastData, unit, windUnit) {
     const isF     = unit === 'fahrenheit';
     const tk      = isF ? 'fahrenheit' : 'celsius';
     const tempSym = isF ? '°F' : '°C';
-    const fmtT    = v => v == null ? '--' : `${Math.round(v)}${tempSym}`;
     const days    = forecastData?.forecast ?? [];
+    if (!days.length) return null;
 
     return days.map(d => {
         const max    = waiNum(d.temperature?.max, tk);
         const min    = waiNum(d.temperature?.min, tk);
         const text   = d.condition?.text ?? '';
-        const precip = d.precipitation?.chanceOfRain ?? 0;
-        let humidity = d.humidity ?? d.avghumidity ?? null;
+        const precip = d.precipitation?.chanceOfRain ?? null;
+        let humidity = typeof d.humidity === 'number' ? d.humidity
+                     : typeof d.avghumidity === 'number' ? d.avghumidity
+                     : null;
         if (humidity == null && d.hourly?.length) {
             const hs = d.hourly.map(h => h.humidity).filter(v => v != null);
             if (hs.length) humidity = hs.reduce((a, b) => a + b, 0) / hs.length;
@@ -466,19 +576,117 @@ function parseWeatherAiDaily(forecastData, unit, windUnit) {
                      ?? waiNum(d.maxwind, 'mph')
                      ?? (typeof d.wind?.max === 'number' ? d.wind.max : null)
                      ?? (typeof d.maxwind_mph === 'number' ? d.maxwind_mph : null);
-        const windDeg = d.wind?.direction ?? d.wind?.dominantDirection ?? null;
-        const windDegNum = typeof windDeg === 'number' ? windDeg : cardinalToDeg(windDeg);
+        const windDegRaw = d.wind?.direction ?? d.wind?.dominantDirection ?? null;
+        const windDegNum = typeof windDegRaw === 'number' ? windDegRaw : cardinalToDeg(windDegRaw);
 
         return {
-            day:      shortDay(d.date),
-            hi:       fmtT(max),
-            lo:       fmtT(min),
-            icon:     wApiIcon(text, 1),
-            precip:   `${precip}%`,
-            humidity: humidity != null ? `${Math.round(humidity)}%` : '--',
-            wind:     fmtWindShort(windMph, windDegNum, windUnit),
+            day:      d.date ? shortDay(d.date) : null,
+            hi:       max != null ? `${Math.round(max)}${tempSym}` : null,
+            lo:       min != null ? `${Math.round(min)}${tempSym}` : null,
+            icon:     text ? wApiIcon(text, 1) : null,
+            precip:   precip != null ? `${precip}%` : null,
+            humidity: humidity != null ? `${Math.round(humidity)}%` : null,
+            wind:     windMph != null ? fmtWindShort(windMph, windDegNum, windUnit) : null,
         };
     });
+}
+
+// Today's sunrise/sunset from an Open-Meteo response — used to backfill the
+// Astronomy tab when WeatherAI didn't supply those fields.
+function extractOpenMeteoAstronomy(omData) {
+    const d = omData?.daily;
+    if (!d?.sunrise?.length) return null;
+    return {
+        sunrise:          formatTime(d.sunrise[0]),
+        sunset:           formatTime(d.sunset?.[0]),
+        moonrise:         null,
+        moonset:          null,
+        moonPhase:        null,
+        moonIllumination: null,
+    };
+}
+
+// ── Merge helpers (WeatherAI primary, Open-Meteo backfill) ────────────────
+
+const WIND_ARROW_RE    = /[↑↓←→↖↗↘↙]/;
+const WIND_CARDINAL_RE = /\b(?:NNE|ENE|ESE|SSE|SSW|WSW|WNW|NNW|NE|SE|SW|NW|N|E|S|W)\b/;
+
+// Wind values are pre-formatted strings, so we can't field-merge speed and
+// direction separately. Prefer the WeatherAI value, but fall back to
+// Open-Meteo when WeatherAI's string lacks directional information.
+function pickWindShort(wai, om) {
+    if (wai == null) return om ?? '--';
+    if (om  == null) return wai;
+    if (WIND_ARROW_RE.test(wai)) return wai;
+    if (WIND_ARROW_RE.test(om))  return om;
+    return wai;
+}
+
+function pickWindFull(wai, om) {
+    if (wai == null) return om ?? '--';
+    if (om  == null) return wai;
+    if (WIND_CARDINAL_RE.test(wai)) return wai;
+    if (WIND_CARDINAL_RE.test(om))  return om;
+    return wai;
+}
+
+function mergeCurrent(wai, om) {
+    if (!wai) return om;
+    return {
+        temp:      wai.temp      ?? om.temp,
+        feelsLike: wai.feelsLike ?? om.feelsLike,
+        humidity:  wai.humidity  ?? om.humidity,
+        wind:      pickWindFull(wai.wind, om.wind),
+        pressure:  wai.pressure  ?? om.pressure,
+        icon:      wai.icon      ?? om.icon,
+        desc:      wai.desc      ?? om.desc,
+    };
+}
+
+function mergeHourly(waiHrs, omHrs) {
+    if (!waiHrs?.length) return omHrs;
+    if (!omHrs?.length)  return waiHrs;
+    return waiHrs.map((h, i) => {
+        const o = omHrs[i] ?? {};
+        return {
+            time:     h.time     ?? o.time     ?? '--',
+            temp:     h.temp     ?? o.temp     ?? '--',
+            icon:     h.icon     ?? o.icon     ?? '',
+            precip:   h.precip   ?? o.precip   ?? '0%',
+            humidity: h.humidity ?? o.humidity ?? '--',
+            wind:     pickWindShort(h.wind, o.wind),
+        };
+    });
+}
+
+function mergeDaily(waiDays, omDays) {
+    if (!waiDays?.length) return omDays;
+    if (!omDays?.length)  return waiDays;
+    return waiDays.map((d, i) => {
+        const o = omDays[i] ?? {};
+        return {
+            day:      d.day      ?? o.day      ?? '--',
+            hi:       d.hi       ?? o.hi       ?? '--',
+            lo:       d.lo       ?? o.lo       ?? '--',
+            icon:     d.icon     ?? o.icon     ?? '',
+            precip:   d.precip   ?? o.precip   ?? '0%',
+            humidity: d.humidity ?? o.humidity ?? '--',
+            wind:     pickWindShort(d.wind, o.wind),
+        };
+    });
+}
+
+function mergeAstronomy(wai, om) {
+    if (!wai) return om;
+    if (!om)  return wai;
+    return {
+        sunrise:          wai.sunrise          ?? om.sunrise,
+        sunset:           wai.sunset           ?? om.sunset,
+        moonrise:         wai.moonrise         ?? om.moonrise,
+        moonset:          wai.moonset          ?? om.moonset,
+        moonPhase:        wai.moonPhase        ?? om.moonPhase,
+        moonIllumination: wai.moonIllumination ?? om.moonIllumination,
+    };
 }
 
 // ── AirNow (US EPA, free with registration) ───────────────────────────────
@@ -1135,10 +1343,40 @@ class WeatherIndicator extends PanelMenu.Button {
                     fetchAlerts(this._lat, this._lon),
                 ]);
 
-                // 'weatherai' was a standalone provider in earlier versions; it is now
-                // an optional overlay (see below). Treat any legacy value as Open-Meteo.
-                const primary = provider === 'weatherapi' ? 'weatherapi' : 'open-meteo';
-                if (primary === 'weatherapi') {
+                const waiKey = this._settings.get_string('weatherai-key').trim();
+
+                if (waiKey) {
+                    // WeatherAI.io is primary for current/hourly/7-day/astro.
+                    // Open-Meteo is always fetched alongside to backfill any
+                    // field WeatherAI doesn't return.
+                    const [omRaw, waiForecast, waiAstro] = await Promise.all([
+                        fetchJSON(buildOpenMeteoUrl(this._lat, this._lon, unit)),
+                        fetchWeatherAiForecast(this._lat, this._lon, waiKey).catch(e => {
+                            console.error('[WeatherPrime] WeatherAI.io forecast failed; using Open-Meteo:', e.message);
+                            return null;
+                        }),
+                        fetchWeatherAiAstronomy(this._lat, this._lon, waiKey).catch(e => {
+                            console.error('[WeatherPrime] WeatherAI.io astronomy failed; using Open-Meteo sunrise/sunset only:', e.message);
+                            return null;
+                        }),
+                    ]);
+
+                    parsed = parseOpenMeteo(omRaw, aqData, windUnit, pressureUnit, unit);
+                    const omAstro = extractOpenMeteoAstronomy(omRaw);
+
+                    const safe = fn => { try { return fn(); } catch (e) {
+                        console.error('[WeatherPrime] WeatherAI parse error:', e.message); return null;
+                    } };
+                    const waiCurrent = waiForecast ? safe(() => parseWeatherAiCurrent(waiForecast, unit, windUnit, pressureUnit)) : null;
+                    const waiHourly  = waiForecast ? safe(() => parseWeatherAiHourly(waiForecast, unit, windUnit))               : null;
+                    const waiDaily   = waiForecast ? safe(() => parseWeatherAiDaily(waiForecast, unit, windUnit))                : null;
+                    const waiAstroP  = waiAstro    ? safe(() => parseWeatherAiAstronomy(waiAstro))                                : null;
+
+                    parsed.current   = mergeCurrent(waiCurrent, parsed.current);
+                    parsed.hourly    = mergeHourly(waiHourly,  parsed.hourly);
+                    parsed.daily     = mergeDaily(waiDaily,    parsed.daily);
+                    parsed.astronomy = mergeAstronomy(waiAstroP, omAstro);
+                } else if (provider === 'weatherapi') {
                     const key = this._settings.get_string('weatherapi-key').trim();
                     if (!key) throw new Error('WeatherAPI key missing — add it in Preferences.');
                     const raw = await fetchWeatherAPI(this._lat, this._lon, key);
@@ -1147,34 +1385,9 @@ class WeatherIndicator extends PanelMenu.Button {
                     const raw = await fetchJSON(buildOpenMeteoUrl(this._lat, this._lon, unit));
                     parsed = parseOpenMeteo(raw, aqData, windUnit, pressureUnit, unit);
                 }
+
                 parsed.alerts = alerts;
                 parsed.airquality.airnow = airNowData;
-
-                const waiKey = this._settings.get_string('weatherai-key').trim();
-                if (waiKey) {
-                    try {
-                        const [forecastData, astroData] = await Promise.all([
-                            fetchWeatherAiForecast(this._lat, this._lon, waiKey),
-                            fetchWeatherAiAstronomy(this._lat, this._lon, waiKey),
-                        ]);
-                        const omDaily = parsed.daily;
-                        const waiDaily = parseWeatherAiDaily(forecastData, unit, windUnit);
-                        if (waiDaily.length > 0) {
-                            // WeatherAI's daily schema doesn't expose wind direction in
-                            // any field name we recognize, so borrow Open-Meteo's wind
-                            // string (which includes the arrow) when WeatherAI's lacks one.
-                            waiDaily.forEach((d, i) => {
-                                if (omDaily?.[i] && !/[↑↓←→↖↗↘↙]/.test(d.wind ?? '')) {
-                                    d.wind = omDaily[i].wind;
-                                }
-                            });
-                            parsed.daily = waiDaily;
-                        }
-                        parsed.astronomy = parseWeatherAiAstronomy(astroData);
-                    } catch (e) {
-                        console.error('[WeatherPrime] WeatherAI.io overlay failed; using primary provider for 7-day:', e.message);
-                    }
-                }
 
                 if (this._settings.get_boolean('location-auto')) {
                     this._settings.set_double('location-latitude',  this._lat);
