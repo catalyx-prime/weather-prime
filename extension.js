@@ -704,7 +704,9 @@ class WeatherPanel {
         top.add_child(label(c.icon, 'wp-cur-icon'));
         const right = vbox('wp-cur-right');
         right.add_child(label(c.temp, 'wp-cur-temp'));
-        right.add_child(label(c.desc, 'wp-cur-desc'));
+        const descLbl = label(c.desc, 'wp-cur-desc');
+        descLbl.clutter_text.line_wrap = true;
+        right.add_child(descLbl);
         top.add_child(right);
         box.add_child(top);
 
