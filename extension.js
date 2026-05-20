@@ -635,6 +635,7 @@ class WeatherPanel {
         const header = hbox('wp-hour-header-row');
         header.add_child(label('Time',     'wp-hour-time wp-col-header'));
         header.add_child(label('Sky',      'wp-hour-icon wp-col-header'));
+        header.add_child(spacer());
         header.add_child(label('Humidity', 'wp-hour-humidity wp-col-header'));
         header.add_child(spacer());
         header.add_child(label('Temp',     'wp-hour-temp wp-col-header'));
@@ -645,6 +646,7 @@ class WeatherPanel {
             const row = hbox('wp-hour-row');
             row.add_child(label(h.time,          'wp-hour-time'));
             row.add_child(label(h.icon,          'wp-hour-icon'));
+            row.add_child(spacer());
             row.add_child(label(h.humidity,      'wp-hour-humidity'));
             row.add_child(spacer());
             row.add_child(label(h.temp,          'wp-hour-temp'));
@@ -660,10 +662,11 @@ class WeatherPanel {
         const header = hbox('wp-day-header-row');
         header.add_child(label('Day',      'wp-day-name wp-col-header'));
         header.add_child(label('Sky',      'wp-day-icon wp-col-header'));
+        header.add_child(spacer());
         header.add_child(label('Humidity', 'wp-day-humidity wp-col-header'));
         header.add_child(spacer());
         header.add_child(label('Hi',       'wp-day-hi wp-col-header'));
-        header.add_child(label('/',        'wp-day-sep wp-col-header'));
+        header.add_child(label(' / ',      'wp-day-sep wp-col-header'));
         header.add_child(label('Lo',       'wp-day-lo wp-col-header'));
         header.add_child(label('Precip',   'wp-day-precip wp-col-header'));
         box.add_child(header);
@@ -672,6 +675,7 @@ class WeatherPanel {
             const row = hbox('wp-day-row');
             row.add_child(label(d.day,           'wp-day-name'));
             row.add_child(label(d.icon,          'wp-day-icon'));
+            row.add_child(spacer());
             row.add_child(label(d.humidity,      'wp-day-humidity'));
             row.add_child(spacer());
             row.add_child(label(d.hi,            'wp-day-hi'));
