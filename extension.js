@@ -182,7 +182,7 @@ function buildOpenMeteoUrl(lat, lon, unit) {
             'temperature_2m', 'apparent_temperature', 'relative_humidity_2m',
             'wind_speed_10m', 'wind_direction_10m', 'weather_code', 'surface_pressure',
         ].join(','),
-        hourly:           'temperature_2m,weather_code,surface_pressure,precipitation_probability',
+        hourly:           'temperature_2m,relative_humidity_2m,weather_code,surface_pressure,precipitation_probability',
         daily:            'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
         temperature_unit: tu,
         wind_speed_unit:  'mph',
@@ -215,18 +215,32 @@ function parseOpenMeteo(data, aqData, windUnit, pressureUnit, unit) {
         else break;
     }
     const hourly = h.time.slice(hi, hi + 12).map((t, idx) => ({
-        time:   shortHour(t),
-        temp:   fmt(h.temperature_2m[hi + idx], unit),
-        icon:   wmo(h.weather_code[hi + idx]).icon,
-        precip: `${h.precipitation_probability[hi + idx] ?? 0}%`,
+        time:     shortHour(t),
+        temp:     fmt(h.temperature_2m[hi + idx], unit),
+        icon:     wmo(h.weather_code[hi + idx]).icon,
+        precip:   `${h.precipitation_probability[hi + idx] ?? 0}%`,
+        humidity: `${Math.round(h.relative_humidity_2m?.[hi + idx] ?? 0)}%`,
     }));
 
+    const dailyHumidity = d.time.map(dayStr => {
+        const prefix = dayStr.substring(0, 10);
+        let sum = 0, count = 0;
+        for (let i = 0; i < h.time.length; i++) {
+            if (h.time[i].startsWith(prefix) && h.relative_humidity_2m?.[i] != null) {
+                sum += h.relative_humidity_2m[i];
+                count++;
+            }
+        }
+        return count > 0 ? Math.round(sum / count) : null;
+    });
+
     const daily = d.time.map((t, i) => ({
-        day:    shortDay(t),
-        hi:     fmt(d.temperature_2m_max[i], unit),
-        lo:     fmt(d.temperature_2m_min[i], unit),
-        icon:   wmo(d.weather_code[i]).icon,
-        precip: `${d.precipitation_probability_max[i] ?? 0}%`,
+        day:      shortDay(t),
+        hi:       fmt(d.temperature_2m_max[i], unit),
+        lo:       fmt(d.temperature_2m_min[i], unit),
+        icon:     wmo(d.weather_code[i]).icon,
+        precip:   `${d.precipitation_probability_max[i] ?? 0}%`,
+        humidity: dailyHumidity[i] != null ? `${dailyHumidity[i]}%` : '--',
     }));
 
     const aqH = aqData?.hourly;
@@ -289,18 +303,20 @@ function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit) {
         else break;
     }
     const hourly = allHours.slice(hi, hi + 12).map(h => ({
-        time:   shortHour(h.time),
-        temp:   `${Math.round(isF ? h.temp_f : h.temp_c)}°${isF ? 'F' : 'C'}`,
-        icon:   wApiIcon(h.condition.text, h.is_day),
-        precip: `${h.chance_of_rain ?? 0}%`,
+        time:     shortHour(h.time),
+        temp:     `${Math.round(isF ? h.temp_f : h.temp_c)}°${isF ? 'F' : 'C'}`,
+        icon:     wApiIcon(h.condition.text, h.is_day),
+        precip:   `${h.chance_of_rain ?? 0}%`,
+        humidity: `${Math.round(h.humidity ?? 0)}%`,
     }));
 
     const daily = data.forecast.forecastday.map(day => ({
-        day:    shortDay(day.date),
-        hi:     `${Math.round(isF ? day.day.maxtemp_f : day.day.maxtemp_c)}°${isF ? 'F' : 'C'}`,
-        lo:     `${Math.round(isF ? day.day.mintemp_f : day.day.mintemp_c)}°${isF ? 'F' : 'C'}`,
-        icon:   wApiIcon(day.day.condition.text, 1),
-        precip: `${day.day.daily_chance_of_rain ?? 0}%`,
+        day:      shortDay(day.date),
+        hi:       `${Math.round(isF ? day.day.maxtemp_f : day.day.maxtemp_c)}°${isF ? 'F' : 'C'}`,
+        lo:       `${Math.round(isF ? day.day.mintemp_f : day.day.mintemp_c)}°${isF ? 'F' : 'C'}`,
+        icon:     wApiIcon(day.day.condition.text, 1),
+        precip:   `${day.day.daily_chance_of_rain ?? 0}%`,
+        humidity: day.day.avghumidity != null ? `${Math.round(day.day.avghumidity)}%` : '--',
     }));
 
     const aqH = aqData?.hourly;
@@ -615,10 +631,21 @@ class WeatherPanel {
 
     _renderHourly() {
         const box = vbox('wp-hourly');
+
+        const header = hbox('wp-hour-header-row');
+        header.add_child(label('Time',     'wp-hour-time wp-col-header'));
+        header.add_child(label('Sky',      'wp-hour-icon wp-col-header'));
+        header.add_child(label('Humidity', 'wp-hour-humidity wp-col-header'));
+        header.add_child(spacer());
+        header.add_child(label('Temp',     'wp-hour-temp wp-col-header'));
+        header.add_child(label('Precip',   'wp-hour-precip wp-col-header'));
+        box.add_child(header);
+
         this._data.hourly.forEach(h => {
             const row = hbox('wp-hour-row');
             row.add_child(label(h.time,          'wp-hour-time'));
             row.add_child(label(h.icon,          'wp-hour-icon'));
+            row.add_child(label(h.humidity,      'wp-hour-humidity'));
             row.add_child(spacer());
             row.add_child(label(h.temp,          'wp-hour-temp'));
             row.add_child(label(`💧${h.precip}`, 'wp-hour-precip'));
@@ -629,10 +656,23 @@ class WeatherPanel {
 
     _renderDaily() {
         const box = vbox('wp-daily');
+
+        const header = hbox('wp-day-header-row');
+        header.add_child(label('Day',      'wp-day-name wp-col-header'));
+        header.add_child(label('Sky',      'wp-day-icon wp-col-header'));
+        header.add_child(label('Humidity', 'wp-day-humidity wp-col-header'));
+        header.add_child(spacer());
+        header.add_child(label('Hi',       'wp-day-hi wp-col-header'));
+        header.add_child(label('/',        'wp-day-sep wp-col-header'));
+        header.add_child(label('Lo',       'wp-day-lo wp-col-header'));
+        header.add_child(label('Precip',   'wp-day-precip wp-col-header'));
+        box.add_child(header);
+
         this._data.daily.forEach(d => {
             const row = hbox('wp-day-row');
             row.add_child(label(d.day,           'wp-day-name'));
             row.add_child(label(d.icon,          'wp-day-icon'));
+            row.add_child(label(d.humidity,      'wp-day-humidity'));
             row.add_child(spacer());
             row.add_child(label(d.hi,            'wp-day-hi'));
             row.add_child(label(' / ',           'wp-day-sep'));

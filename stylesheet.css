@@ -250,10 +250,22 @@
     min-width: 52px;
 }
 
+.wp-hour-humidity {
+    font-size: 11px;
+    color: rgba(140, 200, 255, 0.7);
+    min-width: 48px;
+}
+
 .wp-hour-precip {
     font-size: 11px;
     color: rgba(255, 255, 255, 0.45);
     min-width: 52px;
+}
+
+.wp-hour-header-row {
+    padding: 5px 4px;
+    spacing: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* ── 7-day forecast ─────────────────────────────────────────────────────── */
@@ -303,10 +315,28 @@
     min-width: 42px;
 }
 
+.wp-day-humidity {
+    font-size: 11px;
+    color: rgba(140, 200, 255, 0.7);
+    min-width: 48px;
+}
+
 .wp-day-precip {
     font-size: 11px;
     color: rgba(255, 255, 255, 0.45);
     min-width: 52px;
+}
+
+.wp-day-header-row {
+    padding: 6px 4px;
+    spacing: 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.wp-col-header {
+    font-size: 10px;
+    font-weight: bold;
+    color: rgba(255, 255, 255, 0.5);
 }
 
 /* ── Allergens / air quality ────────────────────────────────────────────── */
@@ -460,4 +490,18 @@
 
 .wp-panel.wp-light .wp-allergen-name {
     color: rgba(0, 0, 0, 0.7);
+}
+
+.wp-panel.wp-light .wp-hour-humidity,
+.wp-panel.wp-light .wp-day-humidity {
+    color: #1976D2;
+}
+
+.wp-panel.wp-light .wp-col-header {
+    color: rgba(0, 0, 0, 0.45);
+}
+
+.wp-panel.wp-light .wp-hour-header-row,
+.wp-panel.wp-light .wp-day-header-row {
+    border-bottom-color: rgba(0, 0, 0, 0.1);
 }
