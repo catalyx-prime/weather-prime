@@ -1157,8 +1157,19 @@ class WeatherIndicator extends PanelMenu.Button {
                             fetchWeatherAiForecast(this._lat, this._lon, waiKey),
                             fetchWeatherAiAstronomy(this._lat, this._lon, waiKey),
                         ]);
+                        const omDaily = parsed.daily;
                         const waiDaily = parseWeatherAiDaily(forecastData, unit, windUnit);
-                        if (waiDaily.length > 0) parsed.daily = waiDaily;
+                        if (waiDaily.length > 0) {
+                            // WeatherAI's daily schema doesn't expose wind direction in
+                            // any field name we recognize, so borrow Open-Meteo's wind
+                            // string (which includes the arrow) when WeatherAI's lacks one.
+                            waiDaily.forEach((d, i) => {
+                                if (omDaily?.[i] && !/[↑↓←→↖↗↘↙]/.test(d.wind ?? '')) {
+                                    d.wind = omDaily[i].wind;
+                                }
+                            });
+                            parsed.daily = waiDaily;
+                        }
                         parsed.astronomy = parseWeatherAiAstronomy(astroData);
                     } catch (e) {
                         console.error('[WeatherPrime] WeatherAI.io overlay failed; using primary provider for 7-day:', e.message);
