@@ -111,6 +111,26 @@ function windDir(deg) {
     return dirs[Math.round(deg / 45) % 8];
 }
 
+// Arrow points in the direction the wind is moving toward
+// (0° = wind from N, blowing south → ↓).
+function windArrow(deg) {
+    if (deg == null) return '';
+    const arrows = ['↓', '↙', '←', '↖', '↑', '↗', '→', '↘'];
+    return arrows[Math.round(deg / 45) % 8];
+}
+
+const CARDINAL_DEG = {
+    N: 0,   NNE: 22.5,  NE: 45,   ENE: 67.5,
+    E: 90,  ESE: 112.5, SE: 135,  SSE: 157.5,
+    S: 180, SSW: 202.5, SW: 225,  WSW: 247.5,
+    W: 270, WNW: 292.5, NW: 315,  NNW: 337.5,
+};
+
+function cardinalToDeg(s) {
+    if (!s) return null;
+    return CARDINAL_DEG[String(s).toUpperCase().trim()] ?? null;
+}
+
 function fmt(val, unit) {
     if (val == null) return '--';
     const sym = unit === 'fahrenheit' ? '°F' : '°C';
@@ -124,6 +144,18 @@ function fmtWind(mph, dir, windUnit) {
     else if (windUnit === 'ms') { val = (mph * 0.44704).toFixed(1); sym = 'm/s'; }
     else                        { val = Math.round(mph); sym = 'mph'; }
     return dir ? `${val} ${sym} ${dir}` : `${val} ${sym}`;
+}
+
+// Compact "<speed> <arrow>" for hourly/daily rows. Arrow is omitted when
+// direction is unknown so the field still shows speed alone.
+function fmtWindShort(mph, deg, windUnit) {
+    if (mph == null) return '--';
+    let val;
+    if (windUnit === 'kmh')     val = Math.round(mph * 1.60934);
+    else if (windUnit === 'ms') val = Math.round(mph * 0.44704);
+    else                        val = Math.round(mph);
+    const arrow = windArrow(deg);
+    return arrow ? `${val} ${arrow}` : `${val}`;
 }
 
 function fmtPressure(hpa, pressureUnit, trend = '') {
@@ -201,8 +233,8 @@ function buildOpenMeteoUrl(lat, lon, unit) {
             'temperature_2m', 'apparent_temperature', 'relative_humidity_2m',
             'wind_speed_10m', 'wind_direction_10m', 'weather_code', 'surface_pressure',
         ].join(','),
-        hourly:           'temperature_2m,relative_humidity_2m,weather_code,surface_pressure,precipitation_probability',
-        daily:            'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
+        hourly:           'temperature_2m,relative_humidity_2m,weather_code,surface_pressure,precipitation_probability,wind_speed_10m,wind_direction_10m',
+        daily:            'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant',
         temperature_unit: tu,
         wind_speed_unit:  'mph',
         timezone:         'auto',
@@ -239,6 +271,7 @@ function parseOpenMeteo(data, aqData, windUnit, pressureUnit, unit) {
         icon:     wmo(h.weather_code[hi + idx]).icon,
         precip:   `${h.precipitation_probability[hi + idx] ?? 0}%`,
         humidity: `${Math.round(h.relative_humidity_2m?.[hi + idx] ?? 0)}%`,
+        wind:     fmtWindShort(h.wind_speed_10m?.[hi + idx], h.wind_direction_10m?.[hi + idx], windUnit),
     }));
 
     const dailyHumidity = d.time.map(dayStr => {
@@ -260,6 +293,7 @@ function parseOpenMeteo(data, aqData, windUnit, pressureUnit, unit) {
         icon:     wmo(d.weather_code[i]).icon,
         precip:   `${d.precipitation_probability_max[i] ?? 0}%`,
         humidity: dailyHumidity[i] != null ? `${dailyHumidity[i]}%` : '--',
+        wind:     fmtWindShort(d.wind_speed_10m_max?.[i], d.wind_direction_10m_dominant?.[i], windUnit),
     }));
 
     const aqH = aqData?.hourly;
@@ -327,6 +361,7 @@ function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit) {
         icon:     wApiIcon(h.condition.text, h.is_day),
         precip:   `${h.chance_of_rain ?? 0}%`,
         humidity: `${Math.round(h.humidity ?? 0)}%`,
+        wind:     fmtWindShort(h.wind_mph, cardinalToDeg(h.wind_dir), windUnit),
     }));
 
     const daily = data.forecast.forecastday.map(day => ({
@@ -336,6 +371,7 @@ function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit) {
         icon:     wApiIcon(day.day.condition.text, 1),
         precip:   `${day.day.daily_chance_of_rain ?? 0}%`,
         humidity: day.day.avghumidity != null ? `${Math.round(day.day.avghumidity)}%` : '--',
+        wind:     fmtWindShort(day.day.maxwind_mph, null, windUnit),
     }));
 
     const aqH = aqData?.hourly;
@@ -405,7 +441,7 @@ function parseWeatherAiAstronomy(data) {
     };
 }
 
-function parseWeatherAiDaily(forecastData, unit) {
+function parseWeatherAiDaily(forecastData, unit, windUnit) {
     const isF     = unit === 'fahrenheit';
     const tk      = isF ? 'fahrenheit' : 'celsius';
     const tempSym = isF ? '°F' : '°C';
@@ -422,6 +458,17 @@ function parseWeatherAiDaily(forecastData, unit) {
             const hs = d.hourly.map(h => h.humidity).filter(v => v != null);
             if (hs.length) humidity = hs.reduce((a, b) => a + b, 0) / hs.length;
         }
+
+        // Defensive: WeatherAI's exact wind schema isn't documented in this codebase,
+        // so probe a few plausible shapes before giving up.
+        const windMph = waiNum(d.wind?.max, 'mph')
+                     ?? waiNum(d.wind?.maxSpeed, 'mph')
+                     ?? waiNum(d.maxwind, 'mph')
+                     ?? (typeof d.wind?.max === 'number' ? d.wind.max : null)
+                     ?? (typeof d.maxwind_mph === 'number' ? d.maxwind_mph : null);
+        const windDeg = d.wind?.direction ?? d.wind?.dominantDirection ?? null;
+        const windDegNum = typeof windDeg === 'number' ? windDeg : cardinalToDeg(windDeg);
+
         return {
             day:      shortDay(d.date),
             hi:       fmtT(max),
@@ -429,6 +476,7 @@ function parseWeatherAiDaily(forecastData, unit) {
             icon:     wApiIcon(text, 1),
             precip:   `${precip}%`,
             humidity: humidity != null ? `${Math.round(humidity)}%` : '--',
+            wind:     fmtWindShort(windMph, windDegNum, windUnit),
         };
     });
 }
@@ -740,6 +788,7 @@ class WeatherPanel {
         header.add_child(spacer());
         header.add_child(label('Temp',     'wp-hour-temp wp-col-header'));
         header.add_child(label('Precip',   'wp-hour-precip wp-col-header'));
+        header.add_child(label('Wind',     'wp-hour-wind wp-col-header'));
         box.add_child(header);
 
         this._data.hourly.forEach(h => {
@@ -751,6 +800,7 @@ class WeatherPanel {
             row.add_child(spacer());
             row.add_child(label(h.temp,          'wp-hour-temp'));
             row.add_child(label(`💧${h.precip}`, 'wp-hour-precip'));
+            row.add_child(label(h.wind ?? '--',  'wp-hour-wind'));
             box.add_child(row);
         });
         this._content.add_child(box);
@@ -769,6 +819,7 @@ class WeatherPanel {
         header.add_child(label(' / ',      'wp-day-sep wp-col-header'));
         header.add_child(label('Lo',       'wp-day-lo wp-col-header'));
         header.add_child(label('Precip',   'wp-day-precip wp-col-header'));
+        header.add_child(label('Wind',     'wp-day-wind wp-col-header'));
         box.add_child(header);
 
         this._data.daily.forEach(d => {
@@ -782,6 +833,7 @@ class WeatherPanel {
             row.add_child(label(' / ',           'wp-day-sep'));
             row.add_child(label(d.lo,            'wp-day-lo'));
             row.add_child(label(`💧${d.precip}`, 'wp-day-precip'));
+            row.add_child(label(d.wind ?? '--',  'wp-day-wind'));
             box.add_child(row);
         });
         this._content.add_child(box);
@@ -1099,7 +1151,7 @@ class WeatherIndicator extends PanelMenu.Button {
                             fetchWeatherAiForecast(this._lat, this._lon, waiKey),
                             fetchWeatherAiAstronomy(this._lat, this._lon, waiKey),
                         ]);
-                        const waiDaily = parseWeatherAiDaily(forecastData, unit);
+                        const waiDaily = parseWeatherAiDaily(forecastData, unit, windUnit);
                         if (waiDaily.length > 0) parsed.daily = waiDaily;
                         parsed.astronomy = parseWeatherAiAstronomy(astroData);
                     } catch (e) {

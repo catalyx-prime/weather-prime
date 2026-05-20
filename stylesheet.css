@@ -25,8 +25,8 @@
 /* ── Drop-down panel ────────────────────────────────────────────────────── */
 
 .wp-panel {
-    min-width: 340px;
-    max-width: 340px;
+    min-width: 374px;
+    max-width: 374px;
     padding: 0;
 }
 
@@ -262,6 +262,12 @@
     min-width: 52px;
 }
 
+.wp-hour-wind {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.55);
+    min-width: 44px;
+}
+
 .wp-hour-header-row {
     padding: 5px 4px;
     spacing: 6px;
@@ -325,6 +331,12 @@
     font-size: 11px;
     color: rgba(255, 255, 255, 0.45);
     min-width: 52px;
+}
+
+.wp-day-wind {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.55);
+    min-width: 44px;
 }
 
 .wp-day-header-row {
@@ -513,6 +525,11 @@
 
 .wp-panel.wp-light .wp-day-precip {
     color: rgba(0, 0, 0, 0.4);
+}
+
+.wp-panel.wp-light .wp-hour-wind,
+.wp-panel.wp-light .wp-day-wind {
+    color: rgba(0, 0, 0, 0.55);
 }
 
 .wp-panel.wp-light .wp-section-title {
