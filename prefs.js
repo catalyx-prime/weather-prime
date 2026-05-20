@@ -106,9 +106,24 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         lonRow.set_text(String(settings.get_double('location-longitude')));
         nameRow.set_text(settings.get_string('location-name'));
 
-        latRow.connect('changed',  () => { const v = parseFloat(latRow.get_text());  if (!isNaN(v)) settings.set_double('location-latitude', v); });
-        lonRow.connect('changed',  () => { const v = parseFloat(lonRow.get_text());  if (!isNaN(v)) settings.set_double('location-longitude', v); });
-        nameRow.connect('changed', () => settings.set_string('location-name', nameRow.get_text()));
+        // Guard so programmatic updates from GSettings don't loop back into set_double/set_string.
+        let _syncing = false;
+
+        latRow.connect('changed',  () => { if (_syncing) return; const v = parseFloat(latRow.get_text());  if (!isNaN(v)) settings.set_double('location-latitude', v); });
+        lonRow.connect('changed',  () => { if (_syncing) return; const v = parseFloat(lonRow.get_text());  if (!isNaN(v)) settings.set_double('location-longitude', v); });
+        nameRow.connect('changed', () => { if (_syncing) return; settings.set_string('location-name', nameRow.get_text()); });
+
+        // When GeoClue (in the shell process) writes new coordinates, refresh the entries live.
+        const syncFromSettings = (row, value) => {
+            const text = String(value);
+            if (row.get_text() === text) return;
+            _syncing = true;
+            row.set_text(text);
+            _syncing = false;
+        };
+        settings.connect('changed::location-latitude',  () => syncFromSettings(latRow,  settings.get_double('location-latitude')));
+        settings.connect('changed::location-longitude', () => syncFromSettings(lonRow,  settings.get_double('location-longitude')));
+        settings.connect('changed::location-name',      () => syncFromSettings(nameRow, settings.get_string('location-name')));
 
         manualGroup.add(latRow);
         manualGroup.add(lonRow);
