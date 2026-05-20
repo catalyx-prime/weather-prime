@@ -25,6 +25,12 @@ if (typeof URLSearchParams === 'undefined') {
     };
 }
 
+// Flip to true while developing to surface fetch/parse failures in journalctl.
+// Shipped releases keep this false so the extension stays quiet per EGO's
+// "no excessive logging" review guideline.
+const DEBUG = false;
+const logError = (...args) => { if (DEBUG) console.error(...args); };
+
 // ── WMO weather code table ────────────────────────────────────────────────
 
 const WMO = {
@@ -470,7 +476,7 @@ async function fetchAirNow(lat, lon, key) {
         });
         return Object.keys(result).length > 0 ? result : null;
     } catch (e) {
-        console.error('[WeatherPrime] AirNow error:', e.message);
+        logError('[WeatherPrime] AirNow error:', e.message);
         return null;
     }
 }
@@ -543,7 +549,7 @@ async function fetchOpenWeatherAirPollution(lat, lon, key) {
             components:  entry.components,
         };
     } catch (e) {
-        console.error('[WeatherPrime] OpenWeatherMap air pollution error:', e.message);
+        logError('[WeatherPrime] OpenWeatherMap air pollution error:', e.message);
         return null;
     }
 }
@@ -1175,7 +1181,7 @@ class WeatherPanel {
         const url = site.url(lat, lon, m.zoom);
         const sid = button.connect('clicked', () => {
             try { Gio.AppInfo.launch_default_for_uri(url, null); }
-            catch (e) { console.error('[WeatherPrime] open map URL failed:', e.message); }
+            catch (e) { logError('[WeatherPrime] open map URL failed:', e.message); }
         });
         button.connect('destroy', () => button.disconnect(sid));
         box.add_child(button);
@@ -1457,7 +1463,7 @@ class WeatherIndicator extends PanelMenu.Button {
             let mapTiles = mapFresh ? this._cachedMap : null;
             if (!mapFresh) {
                 mapTiles = await fetchMapTiles(this._lat, this._lon).catch(e => {
-                    console.error('[WeatherPrime] map tile fetch failed:', e.message);
+                    logError('[WeatherPrime] map tile fetch failed:', e.message);
                     return null;
                 });
                 if (mapTiles) {
@@ -1480,7 +1486,7 @@ class WeatherIndicator extends PanelMenu.Button {
                     fetchAlerts(this._lat, this._lon),
                     waiKey
                         ? fetchWeatherAiAstronomy(this._lat, this._lon, waiKey).catch(e => {
-                            console.error('[WeatherPrime] WeatherAI.io astronomy failed:', e.message);
+                            logError('[WeatherPrime] WeatherAI.io astronomy failed:', e.message);
                             return null;
                         })
                         : Promise.resolve(null),
@@ -1500,7 +1506,7 @@ class WeatherIndicator extends PanelMenu.Button {
                     try {
                         parsed.astronomy = parseWeatherAiAstronomy(waiAstroRaw);
                     } catch (e) {
-                        console.error('[WeatherPrime] WeatherAI astronomy parse error:', e.message);
+                        logError('[WeatherPrime] WeatherAI astronomy parse error:', e.message);
                     }
                 }
 
@@ -1536,7 +1542,7 @@ class WeatherIndicator extends PanelMenu.Button {
             this._panel.setError(e.message);
             this._pillIcon.set_text('⚠️');
             this._pillTemp.set_text('--');
-            console.error('[WeatherPrime]', e.message);
+            logError('[WeatherPrime]', e.message);
         } finally {
             this._busy = false;
         }
