@@ -5,6 +5,7 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Soup from 'gi://Soup';
 import Geoclue from 'gi://Geoclue';
+import Pango from 'gi://Pango';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
@@ -706,6 +707,8 @@ class WeatherPanel {
         right.add_child(label(c.temp, 'wp-cur-temp'));
         const descLbl = label(c.desc, 'wp-cur-desc');
         descLbl.clutter_text.line_wrap = true;
+        descLbl.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
+        descLbl.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
         right.add_child(descLbl);
         top.add_child(right);
         box.add_child(top);
