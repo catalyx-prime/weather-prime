@@ -61,6 +61,20 @@ function wmo(code) {
     return WMO[code] ?? {icon: '🌡️', desc: 'Unknown'};
 }
 
+function moonPhaseIcon(phaseName) {
+    if (!phaseName) return '🌙';
+    const p = phaseName.toLowerCase();
+    if (p.includes('new'))                                return '🌑';
+    if (p.includes('waxing')  && p.includes('crescent'))  return '🌒';
+    if (p.includes('first')   && p.includes('quarter'))   return '🌓';
+    if (p.includes('waxing')  && p.includes('gibbous'))   return '🌔';
+    if (p.includes('full'))                               return '🌕';
+    if (p.includes('waning')  && p.includes('gibbous'))   return '🌖';
+    if ((p.includes('last') || p.includes('third')) && p.includes('quarter')) return '🌗';
+    if (p.includes('waning')  && p.includes('crescent'))  return '🌘';
+    return '🌙';
+}
+
 // ── Utility / formatting ──────────────────────────────────────────────────
 
 function pm25Level(v) {
@@ -153,10 +167,14 @@ function getSession() {
     return _session;
 }
 
-function fetchJSON(url) {
+function fetchJSON(url, headers = null) {
     return new Promise((resolve, reject) => {
         const msg = Soup.Message.new('GET', url);
         if (!msg) { reject(new Error(`Bad URL: ${url}`)); return; }
+        if (headers) {
+            for (const [k, v] of Object.entries(headers))
+                msg.request_headers.append(k, v);
+        }
         getSession().send_and_read_async(msg, GLib.PRIORITY_DEFAULT, null, (sess, result) => {
             try {
                 const bytes  = sess.send_and_read_finish(result);
@@ -346,6 +364,74 @@ function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit) {
     };
 }
 
+// ── WeatherAI.io ──────────────────────────────────────────────────────────
+
+const WEATHERAI_BASE = 'https://api.weatherai.io/v1';
+
+function fetchWeatherAi(path, params, key) {
+    const qs = new URLSearchParams(params);
+    return fetchJSON(`${WEATHERAI_BASE}${path}?${qs}`, {'X-API-Key': key});
+}
+
+function fetchWeatherAiForecast(lat, lon, key) {
+    return fetchWeatherAi('/forecast', {
+        q: `${lat},${lon}`, days: 7, include: 'all', units: 'both',
+    }, key);
+}
+
+function fetchWeatherAiAstronomy(lat, lon, key) {
+    return fetchWeatherAi('/astronomy', {q: `${lat},${lon}`}, key);
+}
+
+// WeatherAI returns nested numeric fields like `temperature.celsius` or
+// `temperature.max.fahrenheit`; defensive lookup picks the requested unit
+// or falls back to a flat numeric value.
+function waiNum(obj, key) {
+    if (obj == null) return null;
+    const v = typeof obj === 'object' ? obj[key] : obj;
+    return (typeof v === 'number') ? v : null;
+}
+
+function parseWeatherAiAstronomy(data) {
+    const a = data?.astronomy ?? data ?? {};
+    return {
+        sunrise:          a.sunrise          ?? null,
+        sunset:           a.sunset           ?? null,
+        moonrise:         a.moonrise         ?? null,
+        moonset:          a.moonset          ?? null,
+        moonPhase:        a.moonPhase        ?? a.moon_phase ?? null,
+        moonIllumination: a.moonIllumination ?? a.moon_illumination ?? null,
+    };
+}
+
+function parseWeatherAiDaily(forecastData, unit) {
+    const isF     = unit === 'fahrenheit';
+    const tk      = isF ? 'fahrenheit' : 'celsius';
+    const tempSym = isF ? '°F' : '°C';
+    const fmtT    = v => v == null ? '--' : `${Math.round(v)}${tempSym}`;
+    const days    = forecastData?.forecast ?? [];
+
+    return days.map(d => {
+        const max    = waiNum(d.temperature?.max, tk);
+        const min    = waiNum(d.temperature?.min, tk);
+        const text   = d.condition?.text ?? '';
+        const precip = d.precipitation?.chanceOfRain ?? 0;
+        let humidity = d.humidity ?? d.avghumidity ?? null;
+        if (humidity == null && d.hourly?.length) {
+            const hs = d.hourly.map(h => h.humidity).filter(v => v != null);
+            if (hs.length) humidity = hs.reduce((a, b) => a + b, 0) / hs.length;
+        }
+        return {
+            day:      shortDay(d.date),
+            hi:       fmtT(max),
+            lo:       fmtT(min),
+            icon:     wApiIcon(text, 1),
+            precip:   `${precip}%`,
+            humidity: humidity != null ? `${Math.round(humidity)}%` : '--',
+        };
+    });
+}
+
 // ── AirNow (US EPA, free with registration) ───────────────────────────────
 
 async function fetchAirNow(lat, lon, key) {
@@ -481,7 +567,8 @@ class WeatherPanel {
             ['current',    'Now'],
             ['hourly',     'Hourly'],
             ['daily',      '7-Day'],
-            ['airquality', '🌬️ Air Quality'],
+            ['airquality', '🌬️ Air'],
+            ['astronomy',  '🌙 Astro'],
         ].forEach(([id, lbl]) => {
             const btn = new St.Button({
                 label:       lbl,
@@ -494,6 +581,7 @@ class WeatherPanel {
             this._tabBtns[id] = btn;
             tabBar.add_child(btn);
         });
+        this._tabBtns.astronomy.hide();
         this.actor.add_child(tabBar);
 
         // ── Scrollable content area ───────────────────────────────────────
@@ -566,6 +654,12 @@ class WeatherPanel {
     setData(data) {
         this._data = data;
         this._renderAlertsBanner(data.alerts ?? []);
+        if (data.astronomy) {
+            this._tabBtns.astronomy?.show();
+        } else {
+            this._tabBtns.astronomy?.hide();
+            if (this._tab === 'astronomy') this._selectTab('current');
+        }
         this._render();
     }
 
@@ -598,6 +692,7 @@ class WeatherPanel {
         case 'hourly':     this._renderHourly();     break;
         case 'daily':      this._renderDaily();      break;
         case 'airquality': this._renderAirQuality(); break;
+        case 'astronomy':  this._renderAstronomy();  break;
         }
     }
 
@@ -738,6 +833,49 @@ class WeatherPanel {
             const note = label('Add an AirNow key in Preferences for full AQI data (US only)', 'wp-status');
             note.clutter_text.line_wrap = true;
             box.add_child(note);
+        }
+
+        this._content.add_child(box);
+    }
+
+    _renderAstronomy() {
+        const a   = this._data.astronomy;
+        const box = vbox('wp-astronomy');
+
+        const sunGrid = hbox('wp-detail-grid');
+        [
+            ['🌅 Sunrise', a.sunrise],
+            ['🌇 Sunset',  a.sunset],
+        ].forEach(([k, v]) => {
+            const cell = vbox('wp-detail-cell');
+            cell.add_child(label(k, 'wp-detail-key'));
+            cell.add_child(label(v ?? '--', 'wp-detail-val'));
+            sunGrid.add_child(cell);
+        });
+        box.add_child(sunGrid);
+
+        const moonGrid = hbox('wp-detail-grid');
+        [
+            ['🌙 Moonrise', a.moonrise],
+            ['🌒 Moonset',  a.moonset],
+        ].forEach(([k, v]) => {
+            const cell = vbox('wp-detail-cell');
+            cell.add_child(label(k, 'wp-detail-key'));
+            cell.add_child(label(v ?? '--', 'wp-detail-val'));
+            moonGrid.add_child(cell);
+        });
+        box.add_child(moonGrid);
+
+        if (a.moonPhase || a.moonIllumination != null) {
+            box.add_child(label('Moon Phase', 'wp-section-title'));
+            const row = hbox('wp-astro-phase-row');
+            row.add_child(label(moonPhaseIcon(a.moonPhase), 'wp-astro-phase-icon'));
+            const right = vbox('wp-astro-phase-right');
+            right.add_child(label(a.moonPhase ?? 'Unknown', 'wp-astro-phase-name'));
+            if (a.moonIllumination != null)
+                right.add_child(label(`${a.moonIllumination}% illuminated`, 'wp-astro-phase-illum'));
+            row.add_child(right);
+            box.add_child(row);
         }
 
         this._content.add_child(box);
@@ -934,7 +1072,10 @@ class WeatherIndicator extends PanelMenu.Button {
                     fetchAlerts(this._lat, this._lon),
                 ]);
 
-                if (provider === 'weatherapi') {
+                // 'weatherai' was a standalone provider in earlier versions; it is now
+                // an optional overlay (see below). Treat any legacy value as Open-Meteo.
+                const primary = provider === 'weatherapi' ? 'weatherapi' : 'open-meteo';
+                if (primary === 'weatherapi') {
                     const key = this._settings.get_string('weatherapi-key').trim();
                     if (!key) throw new Error('WeatherAPI key missing — add it in Preferences.');
                     const raw = await fetchWeatherAPI(this._lat, this._lon, key);
@@ -943,9 +1084,23 @@ class WeatherIndicator extends PanelMenu.Button {
                     const raw = await fetchJSON(buildOpenMeteoUrl(this._lat, this._lon, unit));
                     parsed = parseOpenMeteo(raw, aqData, windUnit, pressureUnit, unit);
                 }
-
-                parsed.airquality.airnow = airNowData;
                 parsed.alerts = alerts;
+                parsed.airquality.airnow = airNowData;
+
+                const waiKey = this._settings.get_string('weatherai-key').trim();
+                if (waiKey) {
+                    try {
+                        const [forecastData, astroData] = await Promise.all([
+                            fetchWeatherAiForecast(this._lat, this._lon, waiKey),
+                            fetchWeatherAiAstronomy(this._lat, this._lon, waiKey),
+                        ]);
+                        const waiDaily = parseWeatherAiDaily(forecastData, unit);
+                        if (waiDaily.length > 0) parsed.daily = waiDaily;
+                        parsed.astronomy = parseWeatherAiAstronomy(astroData);
+                    } catch (e) {
+                        console.error('[WeatherPrime] WeatherAI.io overlay failed; using primary provider for 7-day:', e.message);
+                    }
+                }
 
                 if (this._settings.get_boolean('location-auto')) {
                     this._settings.set_double('location-latitude',  this._lat);

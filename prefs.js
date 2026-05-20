@@ -178,35 +178,58 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         });
 
         const sourceGroup = new Adw.PreferencesGroup({
-            title:       'Weather Data Source',
-            description: 'Open-Meteo is free and requires no API key. WeatherAPI.com requires a free account.',
+            title:       'Primary Weather Provider',
+            description: 'Supplies current conditions, hourly forecast, and (when no WeatherAI.io key is set) the 7-day forecast. Open-Meteo is free and needs no key. WeatherAPI.com requires a free account.',
         });
 
+        const providers = ['open-meteo', 'weatherapi'];
         const providerRow = new Adw.ComboRow({
             title:    'Provider',
             subtitle: 'Which weather service to use',
-            model:    Gtk.StringList.new(['Open-Meteo (free, no key)', 'WeatherAPI.com (bring your own key)']),
+            model:    Gtk.StringList.new([
+                'Open-Meteo (free, no key)',
+                'WeatherAPI.com (bring your own key)',
+            ]),
         });
-        const currentProvider = settings.get_string('api-provider');
-        providerRow.set_selected(currentProvider === 'weatherapi' ? 1 : 0);
+        const savedProvider = settings.get_string('api-provider');
+        let currentIdx = providers.indexOf(savedProvider);
+        if (currentIdx < 0) {
+            // Migrate legacy 'weatherai' value (or any unknown) to the default.
+            currentIdx = 0;
+            settings.set_string('api-provider', providers[0]);
+        }
+        providerRow.set_selected(currentIdx);
 
         const wApiKeyRow = new Adw.PasswordEntryRow({
             title:             'WeatherAPI.com key',
             show_apply_button: true,
         });
         wApiKeyRow.set_text(settings.get_string('weatherapi-key'));
-        wApiKeyRow.set_visible(currentProvider === 'weatherapi');
+        wApiKeyRow.set_visible(providers[currentIdx] === 'weatherapi');
 
         providerRow.connect('notify::selected', () => {
-            const isWApi = providerRow.get_selected() === 1;
-            settings.set_string('api-provider', isWApi ? 'weatherapi' : 'open-meteo');
-            wApiKeyRow.set_visible(isWApi);
+            const sel = providers[providerRow.get_selected()] ?? 'open-meteo';
+            settings.set_string('api-provider', sel);
+            wApiKeyRow.set_visible(sel === 'weatherapi');
         });
         wApiKeyRow.connect('apply', () => settings.set_string('weatherapi-key', wApiKeyRow.get_text()));
 
         sourceGroup.add(providerRow);
         sourceGroup.add(wApiKeyRow);
         page.add(sourceGroup);
+
+        const waiGroup = new Adw.PreferencesGroup({
+            title:       'WeatherAI.io Overlay (Optional)',
+            description: 'When a key is set, the 7-day forecast and Astronomy tab are sourced from WeatherAI.io. If the key is missing or the request fails, the primary provider above is used for the 7-day forecast and Astronomy is hidden.',
+        });
+        const waiKeyRow = new Adw.PasswordEntryRow({
+            title:             'WeatherAI.io key',
+            show_apply_button: true,
+        });
+        waiKeyRow.set_text(settings.get_string('weatherai-key'));
+        waiKeyRow.connect('apply', () => settings.set_string('weatherai-key', waiKeyRow.get_text()));
+        waiGroup.add(waiKeyRow);
+        page.add(waiGroup);
 
         const aqGroup = new Adw.PreferencesGroup({
             title:       'Air Quality Data',

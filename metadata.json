@@ -1,0 +1,8 @@
+{
+  "name": "Weather Prime",
+  "description": "Top-bar weather pill with current conditions, hourly & 7-day forecasts, air quality (AirNow/Open-Meteo), NWS alerts, pressure trend, and light/dark mode. Free with no API key required.",
+  "uuid": "weather-prime@weather-prime",
+  "version": 3,
+  "shell-version": ["50"],
+  "settings-schema": "org.gnome.shell.extensions.weather-prime"
+}

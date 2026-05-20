@@ -4,6 +4,7 @@
           path="/org/gnome/shell/extensions/weather-prime/">
     <key name="api-provider" type="s"><default>'open-meteo'</default><summary>Weather API provider</summary></key>
     <key name="weatherapi-key" type="s"><default>''</default><summary>WeatherAPI.com API key</summary></key>
+    <key name="weatherai-key" type="s"><default>''</default><summary>WeatherAI.io API key</summary></key>
     <key name="tomorrow-api-key" type="s"><default>''</default><summary>Tomorrow.io API key (unused)</summary></key>
     <key name="ambee-api-key" type="s"><default>''</default><summary>Ambee API key (unused)</summary></key>
     <key name="airnow-api-key" type="s"><default>''</default><summary>AirNow API key</summary></key>
@@ -23,5 +24,6 @@
     </key>
 
     <key name="aq-fetch-interval" type="i"><default>60</default><summary>Air quality fetch interval in minutes</summary></key>
+    <key name="panel-position" type="s"><default>'right'</default><summary>Panel position: left, center, or right</summary></key>
   </schema>
 </schemalist>

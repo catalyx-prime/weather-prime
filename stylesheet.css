@@ -373,6 +373,37 @@
     font-weight: bold;
 }
 
+/* ── Astronomy ──────────────────────────────────────────────────────────── */
+
+.wp-astronomy {
+    spacing: 8px;
+}
+
+.wp-astro-phase-row {
+    padding: 8px 4px;
+    spacing: 12px;
+}
+
+.wp-astro-phase-icon {
+    font-size: 36px;
+    min-width: 48px;
+}
+
+.wp-astro-phase-right {
+    spacing: 2px;
+}
+
+.wp-astro-phase-name {
+    font-size: 13px;
+    font-weight: bold;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.wp-astro-phase-illum {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.55);
+}
+
 /* ── Light mode overrides ────────────────────────────────────────────────── */
 
 .wp-panel.wp-light {
@@ -504,4 +535,12 @@
 .wp-panel.wp-light .wp-hour-header-row,
 .wp-panel.wp-light .wp-day-header-row {
     border-bottom-color: rgba(0, 0, 0, 0.1);
+}
+
+.wp-panel.wp-light .wp-astro-phase-name {
+    color: rgba(0, 0, 0, 0.85);
+}
+
+.wp-panel.wp-light .wp-astro-phase-illum {
+    color: rgba(0, 0, 0, 0.5);
 }

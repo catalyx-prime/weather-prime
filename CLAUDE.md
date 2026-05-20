@@ -22,12 +22,14 @@ glib-compile-schemas ~/.local/share/gnome-shell/extensions/weather-prime@weather
 gnome-extensions enable weather-prime@weather-prime
 ```
 
-To reload after code changes (Wayland — only full session restart works reliably):
-```bash
-gnome-extensions disable weather-prime@weather-prime && gnome-extensions enable weather-prime@weather-prime
-```
+To reload after code changes:
 
-On X11, `Alt+F2` → type `r` → Enter restarts the shell in-place.
+- **Wayland:** the disable/enable cycle does **not** reliably reload extension code. The user must log out and log back in for changes to take effect. Ask them to do this — do not attempt to restart the shell yourself.
+  ```bash
+  # Will not pick up code changes on Wayland; included only for completeness.
+  gnome-extensions disable weather-prime@weather-prime && gnome-extensions enable weather-prime@weather-prime
+  ```
+- **X11:** `Alt+F2` → type `r` → Enter restarts the shell in-place.
 
 View extension logs:
 ```bash
