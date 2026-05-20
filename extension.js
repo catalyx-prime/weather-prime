@@ -1180,7 +1180,7 @@ class WeatherPanel {
                 const lvl = owmPollutantLevel(k, v);
                 const valStr = lvl
                     ? `${v.toFixed(2)} µg/m³ — ${lvl.text}`
-                    : `${v.toFixed(2)} µg/m³`;
+                    : `${v.toFixed(2)} µg/m³ — no standard`;
                 const valLbl = label(valStr, 'wp-allergen-val');
                 if (lvl?.color) valLbl.set_style(`color: ${lvl.color};`);
                 row.add_child(valLbl);
