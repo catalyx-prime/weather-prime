@@ -28,5 +28,6 @@
     <key name="aq-fetch-interval" type="i"><default>60</default><summary>Air quality fetch interval in minutes</summary></key>
     <key name="panel-position" type="s"><default>'right'</default><summary>Panel position: left, center, or right</summary></key>
     <key name="panel-size" type="s"><default>'original'</default><summary>Drop-down panel size: original or large (1.5x)</summary></key>
+    <key name="map-website" type="s"><default>'windy'</default><summary>Interactive map website to open on map tap</summary></key>
   </schema>
 </schemalist>

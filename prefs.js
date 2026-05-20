@@ -346,6 +346,21 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
         ]));
         page.add(appearanceGroup);
 
+        const mapGroup = new Adw.PreferencesGroup({
+            title:       'Weather Map',
+            description: 'The Map tab shows a static RainViewer radar overlay on an OpenStreetMap base. Tap it to open a fully interactive map in your browser.',
+        });
+        mapGroup.add(makeComboRow('Open interactive map in', 'Which website to launch when the Map tab is clicked', 'map-website', [
+            {label: 'Windy.com',       value: 'windy'},
+            {label: 'Zoom Earth',      value: 'zoom-earth'},
+            {label: 'Ventusky',        value: 'ventusky'},
+            {label: 'RainViewer',      value: 'rainviewer'},
+            {label: 'Weather.com',     value: 'weather-com'},
+            {label: 'Wunderground',    value: 'wunderground'},
+            {label: 'NWS Radar (US)',  value: 'nws'},
+        ]));
+        page.add(mapGroup);
+
         const unitsGroup = new Adw.PreferencesGroup({title: 'Units'});
         unitsGroup.add(makeComboRow('Temperature', 'Unit for all temperature values', 'temperature-unit', [
             {label: 'Fahrenheit (°F)', value: 'fahrenheit'},

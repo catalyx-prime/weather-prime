@@ -548,6 +548,123 @@ async function fetchOpenWeatherAirPollution(lat, lon, key) {
     }
 }
 
+// ── Weather map (RainViewer + Esri satellite + roads/cities overlay) ─────
+//
+// Zoom strategy: the base/roads/cities are fetched as a 2×2 grid at z=MAP_ZOOM+1
+// (4× pixel density across the same geographic area as one MAP_ZOOM tile, so
+// the displayed image is crisper). RainViewer radar tops out at z=7, so the
+// radar is fetched as a single tile at MAP_ZOOM and stretched across the full
+// 2×2 area.
+
+const MAP_ZOOM = 7;
+const MAP_TILE_SIZE = 256;
+
+const MAP_WEBSITES = {
+    'windy':        {label: 'Windy.com',      url: (lat, lon, z) => `https://www.windy.com/?${lat},${lon},${z}`},
+    'zoom-earth':   {label: 'Zoom Earth',     url: (lat, lon, z) => `https://zoom.earth/maps/precipitation/#view=${lat},${lon},${z}z`},
+    'ventusky':     {label: 'Ventusky',       url: (lat, lon, z) => `https://www.ventusky.com/?p=${lat};${lon};${z}`},
+    'rainviewer':   {label: 'RainViewer',     url: (lat, lon, z) => `https://www.rainviewer.com/map.html?loc=${lat},${lon},${z}`},
+    'weather-com':  {label: 'Weather.com',    url: (lat, lon)    => `https://weather.com/weather/radar/interactive/l/${lat},${lon}`},
+    'wunderground': {label: 'Wunderground',   url: (lat, lon, z) => `https://www.wunderground.com/wundermap?lat=${lat}&lon=${lon}&zoom=${z}`},
+    'nws':          {label: 'NWS Radar (US)', url: ()            => 'https://radar.weather.gov/'},
+};
+
+function latLonToTile(lat, lon, zoom) {
+    const n = 2 ** zoom;
+    const x = Math.floor((lon + 180) / 360 * n);
+    const latRad = lat * Math.PI / 180;
+    const y = Math.floor(
+        (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n
+    );
+    return {x: ((x % n) + n) % n, y: Math.max(0, Math.min(n - 1, y))};
+}
+
+function mapCacheDir() {
+    const dir = GLib.build_filenamev([GLib.get_user_cache_dir(), 'weather-prime']);
+    GLib.mkdir_with_parents(dir, 0o755);
+    return dir;
+}
+
+function downloadToFile(url, destPath, headers = null) {
+    return new Promise((resolve, reject) => {
+        const msg = Soup.Message.new('GET', url);
+        if (!msg) { reject(new Error(`Bad URL: ${url}`)); return; }
+        if (headers) {
+            for (const [k, v] of Object.entries(headers))
+                msg.request_headers.append(k, v);
+        }
+        getSession().send_and_read_async(msg, GLib.PRIORITY_DEFAULT, null, (sess, result) => {
+            try {
+                const bytes  = sess.send_and_read_finish(result);
+                const status = msg.get_status();
+                if (status !== Soup.Status.OK)
+                    throw new Error(`HTTP ${status}`);
+                const file = Gio.File.new_for_path(destPath);
+                file.replace_contents(bytes.get_data(), null, false,
+                    Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+                resolve(destPath);
+            } catch (e) {
+                reject(e);
+            }
+        });
+    });
+}
+
+async function fetchMapTiles(lat, lon) {
+    const meta = await fetchJSON('https://api.rainviewer.com/public/weather-maps.json');
+    const frames = meta?.radar?.past ?? [];
+    if (frames.length === 0) throw new Error('No radar frames available');
+    const latest = frames[frames.length - 1];
+
+    // Fetch a 2×2 grid at MAP_ZOOM+1; geographically covers the same area as
+    // one tile at MAP_ZOOM but at 2× the pixel density, so display scaling
+    // becomes ~1:1 instead of 2× upscale.
+    const tileZoom = MAP_ZOOM + 1;
+    const {x: tx, y: ty} = latLonToTile(lat, lon, MAP_ZOOM);
+    const x0 = tx * 2;
+    const y0 = ty * 2;
+    const dir = mapCacheDir();
+
+    const cells = [];
+    const downloads = [];
+
+    for (let dy = 0; dy < 2; dy++) {
+        for (let dx = 0; dx < 2; dx++) {
+            const x = x0 + dx;
+            const y = y0 + dy;
+
+            const basePath   = GLib.build_filenamev([dir, `satellite-${tileZoom}-${x}-${y}.png`]);
+            const roadsPath  = GLib.build_filenamev([dir, `roads-${tileZoom}-${x}-${y}.png`]);
+            const placesPath = GLib.build_filenamev([dir, `places-${tileZoom}-${x}-${y}.png`]);
+
+            // Esri ArcGIS tile services — note the {z}/{y}/{x} order (different from OSM).
+            const baseUrl   = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${tileZoom}/${y}/${x}`;
+            const roadsUrl  = `https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/${tileZoom}/${y}/${x}`;
+            const placesUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/${tileZoom}/${y}/${x}`;
+
+            if (!Gio.File.new_for_path(basePath).query_exists(null))
+                downloads.push(downloadToFile(baseUrl, basePath, {'User-Agent': 'WeatherPrime/1.0'}));
+            if (!Gio.File.new_for_path(roadsPath).query_exists(null))
+                downloads.push(downloadToFile(roadsUrl, roadsPath, {'User-Agent': 'WeatherPrime/1.0'}));
+            if (!Gio.File.new_for_path(placesPath).query_exists(null))
+                downloads.push(downloadToFile(placesUrl, placesPath, {'User-Agent': 'WeatherPrime/1.0'}));
+
+            cells.push({basePath, roadsPath, placesPath, col: dx, row: dy});
+        }
+    }
+
+    // RainViewer caps radar at zoom 7, so fetch a single z=MAP_ZOOM tile that
+    // covers the same geographic area as the 2×2 base grid.
+    const radarPath = GLib.build_filenamev([dir, `rainviewer-${latest.time}-${MAP_ZOOM}-${tx}-${ty}.png`]);
+    const radarUrl  = `${meta.host}${latest.path}/${MAP_TILE_SIZE}/${MAP_ZOOM}/${tx}/${ty}/2/1_1.png`;
+    if (!Gio.File.new_for_path(radarPath).query_exists(null))
+        downloads.push(downloadToFile(radarUrl, radarPath));
+
+    await Promise.all(downloads);
+
+    return {cells, radarPath, frameTime: latest.time, zoom: MAP_ZOOM};
+}
+
 // ── NWS weather alerts (US, free, no key) ────────────────────────────────
 
 async function fetchAlerts(lat, lon) {
@@ -652,6 +769,7 @@ class WeatherPanel {
             ['daily',      '7-Day'],
             ['airquality', '🌬️ Air'],
             ['astronomy',  '🌙 Astro'],
+            ['map',        '🗺️ Map'],
         ].forEach(([id, lbl]) => {
             const btn = new St.Button({
                 label:       lbl,
@@ -665,6 +783,7 @@ class WeatherPanel {
             tabBar.add_child(btn);
         });
         this._tabBtns.astronomy.hide();
+        this._tabBtns.map.hide();
         this.actor.add_child(tabBar);
 
         // ── Scrollable content area ───────────────────────────────────────
@@ -686,6 +805,11 @@ class WeatherPanel {
             if (tid === id) btn.add_style_class_name('active');
             else            btn.remove_style_class_name('active');
         });
+        if (id === 'hourly' || id === 'map') {
+            this._scroll.add_style_class_name('wp-scroll-tall');
+        } else {
+            this._scroll.remove_style_class_name('wp-scroll-tall');
+        }
         this._render();
     }
 
@@ -743,7 +867,18 @@ class WeatherPanel {
             this._tabBtns.astronomy?.hide();
             if (this._tab === 'astronomy') this._selectTab('current');
         }
+        if (data.map) {
+            this._tabBtns.map?.show();
+        } else {
+            this._tabBtns.map?.hide();
+            if (this._tab === 'map') this._selectTab('current');
+        }
         this._render();
+    }
+
+    setMapWebsite(siteKey) {
+        this._mapWebsite = siteKey;
+        if (this._tab === 'map') this._render();
     }
 
     _renderAlertsBanner(alerts) {
@@ -776,6 +911,7 @@ class WeatherPanel {
         case 'daily':      this._renderDaily();      break;
         case 'airquality': this._renderAirQuality(); break;
         case 'astronomy':  this._renderAstronomy();  break;
+        case 'map':        this._renderMap();        break;
         }
     }
 
@@ -961,6 +1097,89 @@ class WeatherPanel {
         this._content.add_child(box);
     }
 
+    _renderMap() {
+        const m   = this._data.map;
+        const box = vbox('wp-map');
+        if (!m) {
+            box.add_child(label('Map unavailable.', 'wp-status'));
+            this._content.add_child(box);
+            return;
+        }
+
+        const siteKey = this._mapWebsite ?? 'windy';
+        const site    = MAP_WEBSITES[siteKey] ?? MAP_WEBSITES['windy'];
+        const lat     = this._data.lat;
+        const lon     = this._data.lon;
+
+        const tileDisplay = this.actor.has_style_class_name('wp-large') ? 510 : 340;
+        const cellSize = Math.floor(tileDisplay / 2);
+
+        const grid = new St.BoxLayout({
+            vertical:    true,
+            style_class: 'wp-map-stack',
+            x_align:     Clutter.ActorAlign.CENTER,
+        });
+        for (let row = 0; row < 2; row++) {
+            const rowBox = new St.BoxLayout({x_align: Clutter.ActorAlign.CENTER});
+            for (let col = 0; col < 2; col++) {
+                const cell = m.cells.find(c => c.col === col && c.row === row);
+                const stack = new St.Widget({layout_manager: new Clutter.BinLayout()});
+                stack.add_child(new St.Icon({
+                    gicon:     Gio.FileIcon.new(Gio.File.new_for_path(cell.basePath)),
+                    icon_size: cellSize,
+                }));
+                stack.add_child(new St.Icon({
+                    gicon:     Gio.FileIcon.new(Gio.File.new_for_path(cell.roadsPath)),
+                    icon_size: cellSize,
+                }));
+                stack.add_child(new St.Icon({
+                    gicon:     Gio.FileIcon.new(Gio.File.new_for_path(cell.placesPath)),
+                    icon_size: cellSize,
+                }));
+                rowBox.add_child(stack);
+            }
+            grid.add_child(rowBox);
+        }
+
+        // Radar is a single z=MAP_ZOOM tile that geographically matches the
+        // 2×2 base grid; stretch it across the whole map.
+        const mapStack = new St.Widget({
+            layout_manager: new Clutter.BinLayout(),
+            x_align:        Clutter.ActorAlign.CENTER,
+        });
+        mapStack.add_child(grid);
+        if (m.radarPath) {
+            mapStack.add_child(new St.Icon({
+                gicon:     Gio.FileIcon.new(Gio.File.new_for_path(m.radarPath)),
+                icon_size: tileDisplay,
+                opacity:   200,
+            }));
+        }
+
+        const button = new St.Button({
+            child:       mapStack,
+            style_class: 'wp-map-button',
+            reactive:    true,
+            can_focus:   true,
+            x_align:     Clutter.ActorAlign.CENTER,
+        });
+        const url = site.url(lat, lon, m.zoom);
+        const sid = button.connect('clicked', () => {
+            try { Gio.AppInfo.launch_default_for_uri(url, null); }
+            catch (e) { console.error('[WeatherPrime] open map URL failed:', e.message); }
+        });
+        button.connect('destroy', () => button.disconnect(sid));
+        box.add_child(button);
+
+        const ageMin    = Math.max(0, Math.round((Date.now() / 1000 - m.frameTime) / 60));
+        const ageStr    = ageMin === 0 ? 'just now' : `${ageMin} min ago`;
+        const captionLbl = label(`Radar ${ageStr} — tap to open in ${site.label}`, 'wp-map-caption');
+        captionLbl.x_align = Clutter.ActorAlign.CENTER;
+        box.add_child(captionLbl);
+
+        this._content.add_child(box);
+    }
+
     _renderAstronomy() {
         const a   = this._data.astronomy;
         const box = vbox('wp-astronomy');
@@ -1052,6 +1271,7 @@ class WeatherIndicator extends PanelMenu.Button {
         this._panel = new WeatherPanel();
         this._panel.onRefresh(()  => this._fetch(true));
         this._panel.onSettings(() => this._ext.openPreferences());
+        this._panel.setMapWebsite(this._settings.get_string('map-website'));
 
         const section = new PopupMenu.PopupMenuSection();
         section.actor.add_child(this._panel.actor);
@@ -1067,6 +1287,7 @@ class WeatherIndicator extends PanelMenu.Button {
             this._lastFetch    = 0;
             this._cachedAq     = null;
             this._lastAqFetch  = 0;
+            this._panel.setMapWebsite(this._settings.get_string('map-website'));
             this._updateTheme();
             this._restartTimer();
             this._fetch(true);
@@ -1211,7 +1432,7 @@ class WeatherIndicator extends PanelMenu.Button {
             } else {
                 const waiKey = this._settings.get_string('weatherai-key').trim();
 
-                const [aqData, alerts, waiAstroRaw] = await Promise.all([
+                const [aqData, alerts, waiAstroRaw, mapTiles] = await Promise.all([
                     fetchJSON(buildAirQualityUrl(this._lat, this._lon)).catch(() => null),
                     fetchAlerts(this._lat, this._lon),
                     waiKey
@@ -1220,6 +1441,10 @@ class WeatherIndicator extends PanelMenu.Button {
                             return null;
                         })
                         : Promise.resolve(null),
+                    fetchMapTiles(this._lat, this._lon).catch(e => {
+                        console.error('[WeatherPrime] map tile fetch failed:', e.message);
+                        return null;
+                    }),
                 ]);
 
                 if (provider === 'weatherapi') {
@@ -1243,6 +1468,9 @@ class WeatherIndicator extends PanelMenu.Button {
                 parsed.alerts = alerts;
                 parsed.airquality.airnow      = aqResult.airnow;
                 parsed.airquality.openweather = aqResult.openweather;
+                parsed.lat = this._lat;
+                parsed.lon = this._lon;
+                if (mapTiles) parsed.map = mapTiles;
 
                 if (this._settings.get_boolean('location-auto')) {
                     this._settings.set_double('location-latitude',  this._lat);

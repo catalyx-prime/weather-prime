@@ -144,6 +144,10 @@
     max-height: 320px;
 }
 
+.wp-scroll.wp-scroll-tall {
+    max-height: 480px;
+}
+
 .wp-content {
     padding: 10px 14px 12px;
     spacing: 6px;
@@ -416,6 +420,32 @@
     color: rgba(255, 255, 255, 0.55);
 }
 
+/* ── Weather map ────────────────────────────────────────────────────────── */
+
+.wp-map {
+    spacing: 8px;
+}
+
+.wp-map-button {
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 0;
+    background: transparent;
+}
+
+.wp-map-button:hover {
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.wp-map-stack {
+    border-radius: 10px;
+}
+
+.wp-map-caption {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.55);
+}
+
 /* ── Light mode overrides ────────────────────────────────────────────────── */
 
 .wp-panel.wp-light {
@@ -562,6 +592,18 @@
     color: rgba(0, 0, 0, 0.5);
 }
 
+.wp-panel.wp-light .wp-map-button {
+    border-color: rgba(0, 0, 0, 0.12);
+}
+
+.wp-panel.wp-light .wp-map-button:hover {
+    border-color: rgba(0, 0, 0, 0.35);
+}
+
+.wp-panel.wp-light .wp-map-caption {
+    color: rgba(0, 0, 0, 0.55);
+}
+
 /* ── Large size overrides (1.5×) ─────────────────────────────────────────── */
 
 .wp-panel.wp-large {
@@ -625,6 +667,10 @@
 
 .wp-panel.wp-large .wp-scroll {
     max-height: 480px;
+}
+
+.wp-panel.wp-large .wp-scroll.wp-scroll-tall {
+    max-height: 680px;
 }
 
 .wp-panel.wp-large .wp-content {
@@ -836,5 +882,21 @@
 }
 
 .wp-panel.wp-large .wp-astro-phase-illum {
+    font-size: 17px;
+}
+
+.wp-panel.wp-large .wp-map {
+    spacing: 12px;
+}
+
+.wp-panel.wp-large .wp-map-button {
+    border-radius: 15px;
+}
+
+.wp-panel.wp-large .wp-map-stack {
+    border-radius: 15px;
+}
+
+.wp-panel.wp-large .wp-map-caption {
     font-size: 17px;
 }
