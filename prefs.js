@@ -233,15 +233,45 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
 
         const aqGroup = new Adw.PreferencesGroup({
             title:       'Air Quality Data',
-            description: 'AirNow provides US EPA air quality index (AQI) data. Free — register at airnowapi.org. Only pollutants with a monitoring station within 25 miles (40 km) are shown; CO and SO2 monitors are rare and may not appear for your area. Without a key, basic PM2.5/PM10 concentrations from Open-Meteo are shown.',
+            description: 'AirNow provides US EPA air quality index (0–500 scale) and per-pollutant data from monitoring stations within 25 miles. OpenWeatherMap provides a coarser 1–5 AQI but works globally and always returns all 8 pollutant concentrations. Without a key, basic PM2.5/PM10 from Open-Meteo are shown.',
         });
+
         const airnowKeyRow = new Adw.PasswordEntryRow({
-            title:             'AirNow API key',
+            title:             'AirNow API key (US, register at airnowapi.org)',
             show_apply_button: true,
         });
         airnowKeyRow.set_text(settings.get_string('airnow-api-key'));
         airnowKeyRow.connect('apply', () => settings.set_string('airnow-api-key', airnowKeyRow.get_text()));
         aqGroup.add(airnowKeyRow);
+
+        const owmKeyRow = new Adw.PasswordEntryRow({
+            title:             'OpenWeatherMap API key (global, register at openweathermap.org)',
+            show_apply_button: true,
+        });
+        owmKeyRow.set_text(settings.get_string('openweather-api-key'));
+        owmKeyRow.connect('apply', () => settings.set_string('openweather-api-key', owmKeyRow.get_text()));
+        aqGroup.add(owmKeyRow);
+
+        const aqSources = [
+            {value: 'auto',        label: 'Automatic (AirNow → OpenWeatherMap → Open-Meteo)'},
+            {value: 'airnow',      label: 'AirNow only'},
+            {value: 'openweather', label: 'OpenWeatherMap only'},
+            {value: 'open-meteo',  label: 'Open-Meteo PM2.5 / PM10 only'},
+        ];
+        const aqSourceRow = new Adw.ComboRow({
+            title:    'Air quality source',
+            subtitle: 'Which provider to use when its API key is configured',
+            model:    Gtk.StringList.new(aqSources.map(s => s.label)),
+        });
+        const savedAqSource = settings.get_string('aq-source');
+        const aqIdx = aqSources.findIndex(s => s.value === savedAqSource);
+        aqSourceRow.set_selected(aqIdx >= 0 ? aqIdx : 0);
+        aqSourceRow.connect('notify::selected', () => {
+            const src = aqSources[aqSourceRow.get_selected()];
+            if (src) settings.set_string('aq-source', src.value);
+        });
+        aqGroup.add(aqSourceRow);
+
         page.add(aqGroup);
 
         const fetchOptions = [
@@ -270,7 +300,7 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
 
         const fetchGroup = new Adw.PreferencesGroup({title: 'API Call Frequency'});
         fetchGroup.add(makeFreqRow('Weather data',     'How often to fetch weather, forecasts and alerts', 'fetch-interval'));
-        fetchGroup.add(makeFreqRow('Air quality data', 'How often to call the AirNow API',                 'aq-fetch-interval'));
+        fetchGroup.add(makeFreqRow('Air quality data', 'How often to refresh the AQI source',             'aq-fetch-interval'));
         page.add(fetchGroup);
 
         return page;

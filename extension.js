@@ -330,9 +330,10 @@ function parseOpenMeteo(data, aqData, windUnit, pressureUnit, unit) {
         hourly,
         daily,
         airquality: {
-            airnow: null,
-            pm25:   aq('pm2_5'),
-            pm10:   aq('pm10'),
+            airnow:      null,
+            openweather: null,
+            pm25:        aq('pm2_5'),
+            pm10:        aq('pm10'),
         },
     };
 }
@@ -408,9 +409,10 @@ function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit) {
         hourly,
         daily,
         airquality: {
-            airnow: null,
-            pm25:   aq('pm2_5'),
-            pm10:   aq('pm10'),
+            airnow:      null,
+            openweather: null,
+            pm25:        aq('pm2_5'),
+            pm10:        aq('pm10'),
         },
     };
 }
@@ -718,6 +720,79 @@ async function fetchAirNow(lat, lon, key) {
         return Object.keys(result).length > 0 ? result : null;
     } catch (e) {
         console.error('[WeatherPrime] AirNow error:', e.message);
+        return null;
+    }
+}
+
+// ── OpenWeatherMap Air Pollution (global, free with registration) ────────
+
+const OWM_AQI_CATEGORIES = {
+    1: 'Good',
+    2: 'Fair',
+    3: 'Moderate',
+    4: 'Poor',
+    5: 'Very Poor',
+};
+
+const OWM_COMPONENT_LABELS = {
+    pm2_5: 'PM 2.5',
+    pm10:  'PM 10',
+    o3:    'Ozone',
+    no2:   'Nitrogen Dioxide',
+    so2:   'Sulfur Dioxide',
+    co:    'Carbon Monoxide',
+    no:    'Nitric Oxide',
+    nh3:   'Ammonia',
+};
+
+// Per-pollutant breakpoints (µg/m³) from the OpenWeatherMap Air Pollution
+// API docs. Index 0..4 maps to {Good, Fair, Moderate, Poor, Very Poor}
+// using AQ_COLORS 1..5. No published thresholds for `no` and `nh3`.
+const OWM_POLLUTANT_BREAKS = {
+    so2:   [20,   80,   250,   350],
+    no2:   [40,   70,   150,   200],
+    pm10:  [20,   50,   100,   200],
+    pm2_5: [10,   25,   50,    75],
+    o3:    [60,   100,  140,   180],
+    co:    [4400, 9400, 12400, 15400],
+};
+
+const OWM_LEVEL_LABELS = ['Good', 'Fair', 'Moderate', 'Poor', 'Very Poor'];
+
+function owmPollutantLevel(component, v) {
+    if (v == null) return null;
+    const breaks = OWM_POLLUTANT_BREAKS[component];
+    if (!breaks) return null;
+    let i = 0;
+    while (i < breaks.length && v >= breaks[i]) i++;
+    return {
+        text:  OWM_LEVEL_LABELS[i],
+        color: AQ_COLORS[i + 1],
+    };
+}
+
+async function fetchOpenWeatherAirPollution(lat, lon, key) {
+    if (!key) return null;
+    try {
+        const params = new URLSearchParams({
+            lat:   lat.toFixed(4),
+            lon:   lon.toFixed(4),
+            appid: key,
+        });
+        const data = await fetchJSON(
+            `https://api.openweathermap.org/data/2.5/air_pollution?${params}`
+        );
+        const entry = data?.list?.[0];
+        if (!entry?.main || !entry.components) return null;
+        const aqi = entry.main.aqi;
+        return {
+            aqi,
+            category:    OWM_AQI_CATEGORIES[aqi] ?? 'Unknown',
+            categoryNum: aqi,
+            components:  entry.components,
+        };
+    } catch (e) {
+        console.error('[WeatherPrime] OpenWeatherMap air pollution error:', e.message);
         return null;
     }
 }
@@ -1058,7 +1133,7 @@ class WeatherPanel {
                 entries[0][1]
             );
 
-            box.add_child(label('Overall AQI', 'wp-section-title'));
+            box.add_child(label('Overall AQI (AirNow / US EPA)', 'wp-section-title'));
             const overallRow = hbox('wp-allergen-row');
             overallRow.add_child(label('Air Quality', 'wp-allergen-name'));
             overallRow.add_child(spacer());
@@ -1079,6 +1154,38 @@ class WeatherPanel {
                 row.add_child(valLbl);
                 box.add_child(row);
             });
+        } else if (aq.openweather) {
+            const owm = aq.openweather;
+
+            box.add_child(label('Overall AQI (OpenWeatherMap)', 'wp-section-title'));
+            const overallRow = hbox('wp-allergen-row');
+            overallRow.add_child(label('Air Quality', 'wp-allergen-name'));
+            overallRow.add_child(spacer());
+            const overallLbl = label(`${owm.aqi} — ${owm.category}`, 'wp-allergen-val');
+            const overallColor = AQ_COLORS[owm.categoryNum];
+            if (overallColor) overallLbl.set_style(`color: ${overallColor};`);
+            overallRow.add_child(overallLbl);
+            box.add_child(overallRow);
+
+            box.add_child(label('Pollutant Concentrations (µg/m³)', 'wp-section-title'));
+            // Order matters: PM and ozone are the headline pollutants in most
+            // health guidance; trace gases (NO, NH3) come last.
+            const order = ['pm2_5', 'pm10', 'o3', 'no2', 'so2', 'co', 'no', 'nh3'];
+            order.forEach(k => {
+                const v = owm.components?.[k];
+                if (v == null) return;
+                const row = hbox('wp-allergen-row');
+                row.add_child(label(OWM_COMPONENT_LABELS[k] ?? k, 'wp-allergen-name'));
+                row.add_child(spacer());
+                const lvl = owmPollutantLevel(k, v);
+                const valStr = lvl
+                    ? `${v.toFixed(2)} µg/m³ — ${lvl.text}`
+                    : `${v.toFixed(2)} µg/m³`;
+                const valLbl = label(valStr, 'wp-allergen-val');
+                if (lvl?.color) valLbl.set_style(`color: ${lvl.color};`);
+                row.add_child(valLbl);
+                box.add_child(row);
+            });
         } else {
             box.add_child(label('Air Quality', 'wp-section-title'));
             [
@@ -1095,7 +1202,7 @@ class WeatherPanel {
                 row.add_child(valLbl);
                 box.add_child(row);
             });
-            const note = label('Add an AirNow key in Preferences for full AQI data (US only)', 'wp-status');
+            const note = label('Add an AirNow (US only) or OpenWeatherMap (global) key in Preferences for full AQI data', 'wp-status');
             note.clutter_text.line_wrap = true;
             box.add_child(note);
         }
@@ -1325,18 +1432,31 @@ class WeatherIndicator extends PanelMenu.Button {
             const windUnit     = this._settings.get_string('wind-unit');
             const pressureUnit = this._settings.get_string('pressure-unit');
             const airnowKey    = this._settings.get_string('airnow-api-key').trim();
+            const owmKey       = this._settings.get_string('openweather-api-key').trim();
+            const aqSource     = this._settings.get_string('aq-source');
 
-            let airNowData = aqFresh ? this._cachedAq : null;
+            // 'auto' tries AirNow first, then OWM. Explicit values pin one source.
+            const tryAirnow = (aqSource === 'auto' || aqSource === 'airnow') && airnowKey;
+            const tryOwm    = (aqSource === 'auto' || aqSource === 'openweather') && owmKey;
+
+            let aqResult = aqFresh ? this._cachedAq : null;
             if (!aqFresh) {
-                airNowData        = await fetchAirNow(this._lat, this._lon, airnowKey);
-                this._cachedAq    = airNowData;
+                aqResult = { airnow: null, openweather: null };
+                if (tryAirnow) {
+                    aqResult.airnow = await fetchAirNow(this._lat, this._lon, airnowKey);
+                }
+                if (!aqResult.airnow && tryOwm) {
+                    aqResult.openweather = await fetchOpenWeatherAirPollution(this._lat, this._lon, owmKey);
+                }
+                this._cachedAq    = aqResult;
                 this._lastAqFetch = Date.now();
             }
 
             let parsed;
             if (weatherFresh) {
                 parsed = this._cachedParsed;
-                parsed.airquality.airnow = airNowData;
+                parsed.airquality.airnow      = aqResult.airnow;
+                parsed.airquality.openweather = aqResult.openweather;
             } else {
                 const [aqData, alerts] = await Promise.all([
                     fetchJSON(buildAirQualityUrl(this._lat, this._lon)).catch(() => null),
@@ -1387,7 +1507,8 @@ class WeatherIndicator extends PanelMenu.Button {
                 }
 
                 parsed.alerts = alerts;
-                parsed.airquality.airnow = airNowData;
+                parsed.airquality.airnow      = aqResult.airnow;
+                parsed.airquality.openweather = aqResult.openweather;
 
                 if (this._settings.get_boolean('location-auto')) {
                     this._settings.set_double('location-latitude',  this._lat);
