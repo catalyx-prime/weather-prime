@@ -570,12 +570,12 @@ const MAP_TILE_SIZE = 256;
 const RADAR_MIN_INTERVAL_MIN = 10;
 
 const MAP_WEBSITES = {
-    'windy':        {label: 'Windy.com',      url: (lat, lon, z) => `https://www.windy.com/?${lat},${lon},${z}`},
-    'zoom-earth':   {label: 'Zoom Earth',     url: (lat, lon, z) => `https://zoom.earth/maps/precipitation/#view=${lat},${lon},${z}z`},
-    'ventusky':     {label: 'Ventusky',       url: (lat, lon, z) => `https://www.ventusky.com/?p=${lat};${lon};${z}`},
+    'windy':        {label: 'Windy.com',      url: (lat, lon, z) => `https://www.windy.com/?radar,${lat},${lon},${z}`},
+    'zoom-earth':   {label: 'Zoom Earth',     url: (lat, lon, z) => `https://zoom.earth/maps/radar/#view=${lat},${lon},${z}z`},
+    'ventusky':     {label: 'Ventusky',       url: (lat, lon, z) => `https://www.ventusky.com/?p=${lat};${lon};${z}&l=radar`},
     'rainviewer':   {label: 'RainViewer',     url: (lat, lon, z) => `https://www.rainviewer.com/map.html?loc=${lat},${lon},${z}`},
     'weather-com':  {label: 'Weather.com',    url: (lat, lon)    => `https://weather.com/weather/radar/interactive/l/${lat},${lon}`},
-    'wunderground': {label: 'Wunderground',   url: (lat, lon, z) => `https://www.wunderground.com/wundermap?lat=${lat}&lon=${lon}&zoom=${z}`},
+    'wunderground': {label: 'Wunderground',   url: (lat, lon, z) => `https://www.wunderground.com/wundermap?lat=${lat}&lon=${lon}&zoom=${z}&radar=1`},
     'nws':          {label: 'NWS Radar (US)', url: ()            => 'https://radar.weather.gov/'},
 };
 
