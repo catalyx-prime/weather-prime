@@ -1126,7 +1126,9 @@ class WeatherPanel {
         const lat     = this._data.lat;
         const lon     = this._data.lon;
 
-        const tileDisplay = this.actor.has_style_class_name('wp-large') ? 510 : 340;
+        const tileDisplay = this.actor.has_style_class_name('wp-large')  ? 510
+                          : this.actor.has_style_class_name('wp-medium') ? 425
+                          : 340;
         const cellSize = Math.floor(tileDisplay / 2);
 
         const grid = new St.BoxLayout({
@@ -1339,11 +1341,17 @@ class WeatherIndicator extends PanelMenu.Button {
         else
             this._panel.actor.remove_style_class_name('wp-light');
 
-        const isLarge = this._settings.get_string('panel-size') === 'large';
-        if (isLarge)
+        const panelSize = this._settings.get_string('panel-size');
+        if (panelSize === 'large') {
             this._panel.actor.add_style_class_name('wp-large');
-        else
+            this._panel.actor.remove_style_class_name('wp-medium');
+        } else if (panelSize === 'medium') {
+            this._panel.actor.add_style_class_name('wp-medium');
             this._panel.actor.remove_style_class_name('wp-large');
+        } else {
+            this._panel.actor.remove_style_class_name('wp-large');
+            this._panel.actor.remove_style_class_name('wp-medium');
+        }
     }
 
     _startTimer() {

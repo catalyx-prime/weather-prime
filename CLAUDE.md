@@ -136,7 +136,7 @@ Defined in `schemas/org.gnome.shell.extensions.weather-prime.gschema.xml`. Key o
 | `map-fetch-interval` | int | `10` | Radar overlay refresh in minutes (10 is the floor — RainViewer's publish cadence) |
 | `color-scheme` | string | `auto` | `auto`, `dark`, or `light` |
 | `panel-position` | string | `right` | `left`, `center`, or `right` |
-| `panel-size` | string | `original` | `original` or `large` (1.5× drop-down content) |
+| `panel-size` | string | `original` | `original`, `medium` (1.25×), or `large` (1.5× drop-down content) |
 | `map-website` | string | `windy` | Which external site the Map tab opens on click: `windy`, `zoom-earth`, `ventusky`, `rainviewer`, `weather-com`, `wunderground`, `nws` |
 
 After editing the schema XML, always recompile: `glib-compile-schemas <path>/schemas/`.

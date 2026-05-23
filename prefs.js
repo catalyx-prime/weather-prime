@@ -367,8 +367,9 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
             {label: 'Right',  value: 'right'},
         ]));
         appearanceGroup.add(makeComboRow('Panel size', 'Size of the drop-down panel content', 'panel-size', [
-            {label: 'Original',     value: 'original'},
-            {label: 'Large (1.5×)', value: 'large'},
+            {label: 'Default',       value: 'original'},
+            {label: 'Medium (1.25×)', value: 'medium'},
+            {label: 'Large (1.5×)',  value: 'large'},
         ]));
         page.add(appearanceGroup);
 
