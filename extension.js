@@ -64,8 +64,25 @@ const WMO = {
     99: {icon: '⛈️', desc: 'Thunderstorm w/ heavy hail'},
 };
 
-function wmo(code) {
-    return WMO[code] ?? {icon: '🌡️', desc: 'Unknown'};
+// Night variants for the daytime icons that contain a sun. Everything else
+// (overcast, rain, snow, fog, thunder) looks the same after dark, so only the
+// sun-bearing codes need an override.
+const WMO_NIGHT = {
+    0:  '🌙',   // clear sky
+    1:  '🌙',   // mainly clear
+    2:  '☁️',   // partly cloudy (no standard moon-behind-cloud glyph)
+    51: '🌧️',  // light drizzle
+    53: '🌧️',  // drizzle
+    55: '🌧️',  // dense drizzle
+    80: '🌧️',  // slight showers
+    81: '🌧️',  // showers
+};
+
+function wmo(code, isDay = 1) {
+    const base = WMO[code] ?? {icon: '🌡️', desc: 'Unknown'};
+    if (!isDay && WMO_NIGHT[code] != null)
+        return {icon: WMO_NIGHT[code], desc: base.desc};
+    return base;
 }
 
 function moonPhaseIcon(phaseName) {
@@ -252,8 +269,9 @@ function buildOpenMeteoUrl(lat, lon, unit) {
         current: [
             'temperature_2m', 'apparent_temperature', 'relative_humidity_2m',
             'wind_speed_10m', 'wind_direction_10m', 'weather_code', 'surface_pressure',
+            'is_day',
         ].join(','),
-        hourly:           'temperature_2m,relative_humidity_2m,weather_code,surface_pressure,precipitation_probability,wind_speed_10m,wind_direction_10m',
+        hourly:           'temperature_2m,relative_humidity_2m,weather_code,surface_pressure,precipitation_probability,wind_speed_10m,wind_direction_10m,is_day',
         daily:            'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset',
         temperature_unit: tu,
         wind_speed_unit:  'mph',
@@ -288,7 +306,7 @@ function parseOpenMeteo(data, aqData, windUnit, pressureUnit, unit) {
     const hourly = h.time.slice(hi, hi + 12).map((t, idx) => ({
         time:     shortHour(t),
         temp:     fmt(h.temperature_2m[hi + idx], unit),
-        icon:     wmo(h.weather_code[hi + idx]).icon,
+        icon:     wmo(h.weather_code[hi + idx], h.is_day?.[hi + idx] ?? 1).icon,
         precip:   `${h.precipitation_probability[hi + idx] ?? 0}%`,
         humidity: `${Math.round(h.relative_humidity_2m?.[hi + idx] ?? 0)}%`,
         wind:     fmtWindShort(h.wind_speed_10m?.[hi + idx], h.wind_direction_10m?.[hi + idx], windUnit),
@@ -330,8 +348,8 @@ function parseOpenMeteo(data, aqData, windUnit, pressureUnit, unit) {
             humidity:  `${c.relative_humidity_2m ?? '--'}%`,
             wind:      fmtWind(c.wind_speed_10m, windDir(c.wind_direction_10m), windUnit),
             pressure:  fmtPressure(c.surface_pressure, pressureUnit, trend),
-            icon:      wmo(c.weather_code).icon,
-            desc:      wmo(c.weather_code).desc,
+            icon:      wmo(c.weather_code, c.is_day ?? 1).icon,
+            desc:      wmo(c.weather_code, c.is_day ?? 1).desc,
         },
         hourly,
         daily,
@@ -361,7 +379,7 @@ function wApiIcon(condText, isDay) {
     if (t.includes('rain') || t.includes('drizzle'))  return '🌧️';
     if (t.includes('mist') || t.includes('fog'))      return '🌫️';
     if (t.includes('overcast'))                       return '☁️';
-    if (t.includes('cloud'))                          return '⛅';
+    if (t.includes('cloud'))                          return isDay ? '⛅' : '☁️';
     return isDay ? '☀️' : '🌙';
 }
 
