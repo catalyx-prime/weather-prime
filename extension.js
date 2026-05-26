@@ -226,6 +226,16 @@ function shortDay(s) {
     return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
 }
 
+// Format a Unix-epoch (seconds) radar frame timestamp as local "h:mmam/pm".
+function radarFrameTime(epochSec) {
+    const d  = new Date(epochSec * 1000);
+    let h    = d.getHours();
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ampm = h >= 12 ? 'pm' : 'am';
+    h = h % 12 || 12;
+    return `${h}:${mm}${ampm}`;
+}
+
 // Format an ISO-ish "YYYY-MM-DDTHH:MM[...]" string as "h:mm AM/PM" using
 // the literal HH:MM in the string. Avoids timezone surprises from `new Date`
 // when Open-Meteo returns localized timestamps without a UTC offset.
@@ -627,6 +637,11 @@ const MAP_TILE_SIZE = 256;
 // just refetches the same data and is wasted on the provider's bandwidth.
 const RADAR_MIN_INTERVAL_MIN = 10;
 
+// Radar loop playback: each frame holds RADAR_FRAME_MS, then the most-recent
+// frame holds RADAR_HOLD_MS so the current conditions linger before looping.
+const RADAR_FRAME_MS = 500;
+const RADAR_HOLD_MS  = 1500;
+
 const MAP_WEBSITES = {
     'windy':        {label: 'Windy.com',      url: (lat, lon, z) => `https://www.windy.com/?radar,${lat},${lon},${z}`},
     'zoom-earth':   {label: 'Zoom Earth',     url: (lat, lon, z) => `https://zoom.earth/maps/radar/#view=${lat},${lon},${z}z`},
@@ -678,11 +693,32 @@ function downloadToFile(url, destPath, headers = null) {
     });
 }
 
+// Delete cached radar tiles that aren't part of the current frame set. The
+// base/roads/places tiles are left alone (they rarely change and are keyed by
+// position, not time); only the time-keyed rainviewer-*.png frames accumulate.
+function pruneRadarCache(dir, keepPaths) {
+    try {
+        const keep = new Set(keepPaths.map(p => GLib.path_get_basename(p)));
+        const d  = Gio.File.new_for_path(dir);
+        const en = d.enumerate_children('standard::name', Gio.FileQueryInfoFlags.NONE, null);
+        let info;
+        while ((info = en.next_file(null)) !== null) {
+            const name = info.get_name();
+            if (name.startsWith('rainviewer-') && !keep.has(name)) {
+                try { d.get_child(name).delete(null); } catch { /* ignore */ }
+            }
+        }
+        en.close(null);
+    } catch (e) {
+        logError('[WeatherPrime] radar cache prune failed:', e.message);
+    }
+}
+
 async function fetchMapTiles(lat, lon) {
-    const meta = await fetchJSON('https://api.rainviewer.com/public/weather-maps.json');
-    const frames = meta?.radar?.past ?? [];
-    if (frames.length === 0) throw new Error('No radar frames available');
-    const latest = frames[frames.length - 1];
+    const meta    = await fetchJSON('https://api.rainviewer.com/public/weather-maps.json');
+    const past    = meta?.radar?.past    ?? [];
+    const nowcast = meta?.radar?.nowcast ?? [];
+    if (past.length === 0) throw new Error('No radar frames available');
 
     // Fetch a 2×2 grid at MAP_ZOOM+1; geographically covers the same area as
     // one tile at MAP_ZOOM but at 2× the pixel density, so display scaling
@@ -721,16 +757,25 @@ async function fetchMapTiles(lat, lon) {
         }
     }
 
-    // RainViewer caps radar at zoom 7, so fetch a single z=MAP_ZOOM tile that
-    // covers the same geographic area as the 2×2 base grid.
-    const radarPath = GLib.build_filenamev([dir, `rainviewer-${latest.time}-${MAP_ZOOM}-${tx}-${ty}.png`]);
-    const radarUrl  = `${meta.host}${latest.path}/${MAP_TILE_SIZE}/${MAP_ZOOM}/${tx}/${ty}/2/1_1.png`;
-    if (!Gio.File.new_for_path(radarPath).query_exists(null))
-        downloads.push(downloadToFile(radarUrl, radarPath));
+    // RainViewer caps radar at zoom 7, so each frame is a single z=MAP_ZOOM
+    // tile covering the same geographic area as the 2×2 base grid. Past frames
+    // first (oldest → newest), then nowcast so the loop runs into the forecast.
+    const frameMeta = [
+        ...past.map(f    => ({...f, kind: 'past'})),
+        ...nowcast.map(f => ({...f, kind: 'nowcast'})),
+    ];
+    const frames = frameMeta.map(f => {
+        const path = GLib.build_filenamev([dir, `rainviewer-${f.time}-${MAP_ZOOM}-${tx}-${ty}.png`]);
+        const url  = `${meta.host}${f.path}/${MAP_TILE_SIZE}/${MAP_ZOOM}/${tx}/${ty}/2/1_1.png`;
+        if (!Gio.File.new_for_path(path).query_exists(null))
+            downloads.push(downloadToFile(url, path));
+        return {path, time: f.time, kind: f.kind};
+    });
 
     await Promise.all(downloads);
+    pruneRadarCache(dir, frames.map(f => f.path));
 
-    return {cells, radarPath, frameTime: latest.time, zoom: MAP_ZOOM};
+    return {cells, frames, zoom: MAP_ZOOM};
 }
 
 // ── NWS weather alerts (US, free, no key) ────────────────────────────────
@@ -792,6 +837,14 @@ class WeatherPanel {
         this._tab        = 'current';
         this._refreshCb  = null;
         this._settingsCb = null;
+
+        // Radar loop animation state (see _startMapAnimation).
+        this._mapAnimId     = null;
+        this._mapIcons      = null;
+        this._mapFrames     = null;
+        this._mapCaptionLbl = null;
+        this._mapSite       = null;
+        this._mapIndex      = 0;
 
         this.actor = vbox('wp-panel');
         this._build();
@@ -887,6 +940,7 @@ class WeatherPanel {
     }
 
     destroy() {
+        this._stopMapAnimation();
         if (this._refreshSignalId) {
             this._refreshBtn.disconnect(this._refreshSignalId);
             this._refreshSignalId = null;
@@ -949,6 +1003,8 @@ class WeatherPanel {
             this._tabBtns.map?.hide();
             if (this._tab === 'map') this._selectTab('current');
         }
+        const dayCount = data.daily?.length ?? 7;
+        if (this._tabBtns.daily) this._tabBtns.daily.label = `${dayCount}-Day`;
         this._render();
     }
 
@@ -979,6 +1035,7 @@ class WeatherPanel {
     }
 
     _render() {
+        this._stopMapAnimation();   // frame icons are about to be destroyed
         this._content.destroy_all_children();
         if (!this._data) return;
         switch (this._tab) {
@@ -1236,20 +1293,28 @@ class WeatherPanel {
             grid.add_child(rowBox);
         }
 
-        // Radar is a single z=MAP_ZOOM tile that geographically matches the
-        // 2×2 base grid; stretch it across the whole map.
+        // Each radar frame is a single z=MAP_ZOOM tile geographically matching
+        // the 2×2 base grid; stretch it across the whole map. All frames are
+        // stacked, only the current one visible — the animation timer flips
+        // visibility to play the loop without re-decoding images on every tick.
         const mapStack = new St.Widget({
             layout_manager: new Clutter.BinLayout(),
             x_align:        Clutter.ActorAlign.CENTER,
         });
         mapStack.add_child(grid);
-        if (m.radarPath) {
-            mapStack.add_child(new St.Icon({
-                gicon:     Gio.FileIcon.new(Gio.File.new_for_path(m.radarPath)),
+
+        const frames     = m.frames ?? [];
+        const lastIdx    = frames.length - 1;
+        const frameIcons = frames.map((f, i) => {
+            const icon = new St.Icon({
+                gicon:     Gio.FileIcon.new(Gio.File.new_for_path(f.path)),
                 icon_size: tileDisplay,
                 opacity:   200,
-            }));
-        }
+                visible:   i === lastIdx,   // most-recent frame as the resting view
+            });
+            mapStack.add_child(icon);
+            return icon;
+        });
 
         const button = new St.Button({
             child:       mapStack,
@@ -1266,13 +1331,80 @@ class WeatherPanel {
         button.connect('destroy', () => button.disconnect(sid));
         box.add_child(button);
 
-        const ageMin    = Math.max(0, Math.round((Date.now() / 1000 - m.frameTime) / 60));
-        const ageStr    = ageMin === 0 ? 'just now' : `${ageMin} min ago`;
-        const captionLbl = label(`Radar ${ageStr} — tap to open in ${site.label}`, 'wp-map-caption');
+        const captionLbl = label('', 'wp-map-caption');
         captionLbl.x_align = Clutter.ActorAlign.CENTER;
         box.add_child(captionLbl);
 
         this._content.add_child(box);
+
+        // Drives the loop and keeps the caption in sync with the shown frame.
+        this._startMapAnimation(frameIcons, frames, captionLbl, site, lastIdx);
+    }
+
+    // ── Radar loop animation ──────────────────────────────────────────────
+    // Cycles the stacked frame icons oldest → newest, pausing on the latest.
+    // A self-rescheduling timeout (rather than a fixed-interval one) lets the
+    // final frame hold longer than the rest.
+
+    _mapCaptionText(i) {
+        const f = this._mapFrames?.[i];
+        if (!f) return '';
+        const tag = f.kind === 'nowcast' ? ' (forecast)' : '';
+        return `Radar ${radarFrameTime(f.time)}${tag} — tap to open in ${this._mapSite.label}`;
+    }
+
+    _showMapFrame(i) {
+        this._mapIcons.forEach((icon, idx) => { icon.visible = idx === i; });
+        this._mapCaptionLbl?.set_text(this._mapCaptionText(i));
+    }
+
+    _scheduleMapFrame() {
+        const delay = this._mapIndex === this._mapIcons.length - 1
+            ? RADAR_HOLD_MS : RADAR_FRAME_MS;
+        this._mapAnimId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
+            this._mapAnimId = null;
+            this._mapIndex  = (this._mapIndex + 1) % this._mapIcons.length;
+            this._showMapFrame(this._mapIndex);
+            this._scheduleMapFrame();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _startMapAnimation(frameIcons, frames, captionLbl, site, restingIdx) {
+        this._stopMapAnimation();
+        this._mapSite       = site;
+        this._mapFrames     = frames;
+        this._mapCaptionLbl = captionLbl;
+        if (!frameIcons || frameIcons.length === 0) return;
+        this._mapIcons = frameIcons;
+        if (frameIcons.length === 1) {            // nothing to animate
+            this._mapIndex = restingIdx;
+            this._showMapFrame(restingIdx);
+            return;
+        }
+        this._mapIndex = 0;
+        this._showMapFrame(0);
+        this._scheduleMapFrame();
+    }
+
+    // Stop and forget the loop — call before the frame icons are destroyed.
+    _stopMapAnimation() {
+        if (this._mapAnimId) { GLib.source_remove(this._mapAnimId); this._mapAnimId = null; }
+        this._mapIcons      = null;
+        this._mapFrames     = null;
+        this._mapCaptionLbl = null;
+        this._mapSite       = null;
+    }
+
+    // Halt playback without dropping the frame references (menu closed).
+    pauseMap() {
+        if (this._mapAnimId) { GLib.source_remove(this._mapAnimId); this._mapAnimId = null; }
+    }
+
+    // Resume playback if we're still on the map tab with frames intact.
+    resumeMap() {
+        if (this._tab === 'map' && this._mapIcons && this._mapIcons.length > 1 && !this._mapAnimId)
+            this._scheduleMapFrame();
     }
 
     _renderAstronomy() {
@@ -1375,7 +1507,8 @@ class WeatherIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(section);
 
         this._menuSignalId = this.menu.connect('open-state-changed', (_m, open) => {
-            if (open) this._fetch(false);
+            if (open) { this._fetch(false); this._panel.resumeMap(); }
+            else      { this._panel.pauseMap(); }
         });
 
         this._settingsId = this._settings.connect('changed', () => {

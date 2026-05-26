@@ -80,7 +80,7 @@ _fetch(force)
   → _resolveLocation()                        (GeoClue2 or manual coords from GSettings)
   → if location moved since last fetch, drop all caches
   → if not fresh: fetch air quality (AirNow → OpenWeatherMap → Open-Meteo, per aq-source)
-  → if not fresh: fetch RainViewer radar tile composite over Esri World Imagery base
+  → if not fresh: fetch RainViewer radar frames (past + nowcast) over an Esri World Imagery base; the Map tab loops them
   → if weather not fresh: Promise.all([
         fetchJSON(buildAirQualityUrl()),       // PM2.5/PM10 backfill
         fetchAlerts(),                          // NWS, US only
@@ -105,7 +105,9 @@ Parsed data shape:
   },
   astronomy:  { sunrise, sunset, moonrise, moonset, moonPhase, moonIllumination }, // any field may be null; tab hidden if all are
   
-  map:        { cells, radarPath, frameTime, zoom } | undefined,
+  map:        { cells, frames: [{ path, time, kind }], zoom } | undefined,
+              // frames are radar tiles oldest→newest (past then nowcast);
+              // WeatherPanel loops them, holding on the most recent
   alerts:     [{ event, headline, desc, severity }],
 }
 ```
