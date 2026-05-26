@@ -314,6 +314,31 @@ function buildAirQualityUrl(lat, lon) {
     return `https://air-quality-api.open-meteo.com/v1/air-quality?${params}`;
 }
 
+// Minimal Open-Meteo request for just the 7-day dominant wind directions.
+// Used to backfill the daily forecast when the selected provider (e.g.
+// WeatherAPI) omits a per-day wind direction.
+function buildOpenMeteoDailyWindUrl(lat, lon) {
+    const params = new URLSearchParams({
+        latitude:      lat,
+        longitude:     lon,
+        daily:         'wind_direction_10m_dominant',
+        timezone:      'auto',
+        forecast_days: 7,
+    });
+    return `https://api.open-meteo.com/v1/forecast?${params}`;
+}
+
+// Builds a { 'YYYY-MM-DD': degrees } map from an Open-Meteo daily-wind
+// response so callers can look up a direction by date string. Returns null
+// when the response is missing or malformed.
+function dailyWindDirMap(omWindRaw) {
+    const d = omWindRaw?.daily;
+    if (!d?.time) return null;
+    const map = {};
+    d.time.forEach((t, i) => { map[t] = d.wind_direction_10m_dominant?.[i] ?? null; });
+    return map;
+}
+
 function parseOpenMeteo(data, aqData, windUnit, pressureUnit, unit) {
     const c = data.current;
     const h = data.hourly;
@@ -417,7 +442,7 @@ function wApiIcon(condText, isDay) {
     return isDay ? '☀️' : '🌙';
 }
 
-function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit) {
+function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit, dailyWindDirs = null) {
     const c   = data.current;
     const isF = unit === 'fahrenheit';
 
@@ -437,6 +462,8 @@ function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit) {
         wind:     fmtWindShort(h.wind_mph, cardinalToDeg(h.wind_dir), windUnit),
     }));
 
+    // WeatherAPI's daily forecast has no dominant wind direction; backfill the
+    // arrow from Open-Meteo (keyed by date) when a map is supplied.
     const daily = data.forecast.forecastday.map(day => ({
         day:      shortDay(day.date),
         hi:       `${Math.round(isF ? day.day.maxtemp_f : day.day.maxtemp_c)}°${isF ? 'F' : 'C'}`,
@@ -444,7 +471,7 @@ function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit) {
         icon:     wApiIcon(day.day.condition.text, 1),
         precip:   `${day.day.daily_chance_of_rain ?? 0}%`,
         humidity: day.day.avghumidity != null ? `${Math.round(day.day.avghumidity)}%` : '--',
-        wind:     fmtWindShort(day.day.maxwind_mph, null, windUnit),
+        wind:     fmtWindShort(day.day.maxwind_mph, dailyWindDirs?.[day.date] ?? null, windUnit),
     }));
 
     const aqH = aqData?.hourly;
@@ -1755,8 +1782,15 @@ class WeatherIndicator extends PanelMenu.Button {
                 if (provider === 'weatherapi') {
                     const key = this._settings.get_string('weatherapi-key').trim();
                     if (!key) throw new Error('WeatherAPI key missing — add it in Preferences.');
-                    const raw = await fetchWeatherAPI(this._lat, this._lon, key);
-                    parsed = parseWeatherAPI(raw, aqData, windUnit, pressureUnit, unit);
+                    // WeatherAPI omits a per-day wind direction, so pull the
+                    // dominant directions from Open-Meteo (keyless) in parallel
+                    // and backfill the 7-day arrows.
+                    const [raw, omWindRaw] = await Promise.all([
+                        fetchWeatherAPI(this._lat, this._lon, key),
+                        fetchJSON(buildOpenMeteoDailyWindUrl(this._lat, this._lon)).catch(() => null),
+                    ]);
+                    parsed = parseWeatherAPI(raw, aqData, windUnit, pressureUnit, unit,
+                                             dailyWindDirMap(omWindRaw));
                 } else {
                     const raw = await fetchJSON(buildOpenMeteoUrl(this._lat, this._lon, unit));
                     parsed = parseOpenMeteo(raw, aqData, windUnit, pressureUnit, unit);

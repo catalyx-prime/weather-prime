@@ -151,7 +151,7 @@ After editing the schema XML, always recompile: `glib-compile-schemas <path>/sch
 
 | API | Key needed | Used for |
 |-----|-----------|---------|
-| Open-Meteo (`api.open-meteo.com`) | No | Weather forecast (default provider); also backfills wind direction in the 7-day when WeatherAI overlay lacks it |
+| Open-Meteo (`api.open-meteo.com`) | No | Weather forecast (default provider); also backfills the 7-day dominant wind direction when the selected provider lacks it (WeatherAPI's daily forecast has no wind direction) |
 | Open-Meteo Air Quality (`air-quality-api.open-meteo.com`) | No | PM2.5/PM10 fallback (always fetched alongside weather) |
 | WeatherAPI.com | Yes | Alternative weather provider |
 | WeatherAI.io | Yes | Astronomy data only (sunrise/sunset, moon phase, illumination). Tab hidden without a key |
