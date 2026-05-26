@@ -364,13 +364,19 @@ function parseOpenMeteo(data, aqData, windUnit, pressureUnit, unit) {
             dewPoint:   c.dew_point_2m   != null ? fmt(c.dew_point_2m, unit) : null,
             visibility: fmtVisibility(c.visibility, unit),
             cloudCover: c.cloud_cover    != null ? `${Math.round(c.cloud_cover)}%` : null,
-            sunrise:    formatTime(d.sunrise?.[0]),
-            sunset:     formatTime(d.sunset?.[0]),
             icon:      wmo(c.weather_code, c.is_day ?? 1).icon,
             desc:      wmo(c.weather_code, c.is_day ?? 1).desc,
         },
         hourly,
         daily,
+        astronomy: {
+            sunrise:          formatTime(d.sunrise?.[0]),
+            sunset:           formatTime(d.sunset?.[0]),
+            moonrise:         null,
+            moonset:          null,
+            moonPhase:        null,
+            moonIllumination: null,
+        },
         airquality: {
             airnow:      null,
             openweather: null,
@@ -438,6 +444,8 @@ function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit) {
 
     const trend = pressureTrend(allHours.map(h => h.pressure_mb), hi);
 
+    const astro = data.forecast.forecastday?.[0]?.astro ?? {};
+
     return {
         current: {
             temp:      `${Math.round(isF ? c.temp_f : c.temp_c)}°${isF ? 'F' : 'C'}`,
@@ -450,13 +458,20 @@ function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit) {
                             ? fmt(isF ? c.dewpoint_f : c.dewpoint_c, unit) : null,
             visibility: c.vis_km != null ? fmtVisibility(c.vis_km * 1000, unit) : null,
             cloudCover: c.cloud != null ? `${c.cloud}%` : null,
-            sunrise:    data.forecast.forecastday?.[0]?.astro?.sunrise ?? null,
-            sunset:     data.forecast.forecastday?.[0]?.astro?.sunset  ?? null,
             icon:      wApiIcon(c.condition.text, c.is_day),
             desc:      c.condition.text,
         },
         hourly,
         daily,
+        astronomy: {
+            sunrise:          formatTime(astro.sunrise),
+            sunset:           formatTime(astro.sunset),
+            moonrise:         formatTime(astro.moonrise),
+            moonset:          formatTime(astro.moonset),
+            moonPhase:        astro.moon_phase || null,
+            moonIllumination: astro.moon_illumination != null && astro.moon_illumination !== ''
+                                  ? parseInt(astro.moon_illumination, 10) : null,
+        },
         airquality: {
             airnow:      null,
             openweather: null,
@@ -919,7 +934,10 @@ class WeatherPanel {
     setData(data) {
         this._data = data;
         this._renderAlertsBanner(data.alerts ?? []);
-        if (data.astronomy) {
+        const a = data.astronomy;
+        const hasAstro = !!a && (a.sunrise || a.sunset || a.moonrise || a.moonset ||
+                                 a.moonPhase || a.moonIllumination != null);
+        if (hasAstro) {
             this._tabBtns.astronomy?.show();
         } else {
             this._tabBtns.astronomy?.hide();
@@ -1001,8 +1019,6 @@ class WeatherPanel {
             ['Dew point',   c.dewPoint],
             ['Visibility',  c.visibility],
             ['Cloud',       c.cloudCover],
-            ['🌅 Sunrise',  c.sunrise],
-            ['🌇 Sunset',   c.sunset],
         ].filter(([, v]) => v != null);
 
         const grid = vbox('wp-detail-grid');
@@ -1263,29 +1279,27 @@ class WeatherPanel {
         const a   = this._data.astronomy;
         const box = vbox('wp-astronomy');
 
-        const sunGrid = hbox('wp-detail-grid');
-        [
+        const addGrid = cells => {
+            const present = cells.filter(([, v]) => v != null);
+            if (!present.length) return;
+            const grid = hbox('wp-detail-grid');
+            present.forEach(([k, v]) => {
+                const cell = vbox('wp-detail-cell');
+                cell.add_child(label(k, 'wp-detail-key'));
+                cell.add_child(label(v, 'wp-detail-val'));
+                grid.add_child(cell);
+            });
+            box.add_child(grid);
+        };
+
+        addGrid([
             ['🌞 Sunrise', a.sunrise],
             ['🌜 Sunset',  a.sunset],
-        ].forEach(([k, v]) => {
-            const cell = vbox('wp-detail-cell');
-            cell.add_child(label(k, 'wp-detail-key'));
-            cell.add_child(label(v ?? '--', 'wp-detail-val'));
-            sunGrid.add_child(cell);
-        });
-        box.add_child(sunGrid);
-
-        const moonGrid = hbox('wp-detail-grid');
-        [
+        ]);
+        addGrid([
             ['🌙 Moonrise', a.moonrise],
             ['🌒 Moonset',  a.moonset],
-        ].forEach(([k, v]) => {
-            const cell = vbox('wp-detail-cell');
-            cell.add_child(label(k, 'wp-detail-key'));
-            cell.add_child(label(v ?? '--', 'wp-detail-val'));
-            moonGrid.add_child(cell);
-        });
-        box.add_child(moonGrid);
+        ]);
 
         if (a.moonPhase || a.moonIllumination != null) {
             box.add_child(label('Moon Phase', 'wp-section-title'));
@@ -1572,9 +1586,21 @@ class WeatherIndicator extends PanelMenu.Button {
                     parsed = parseOpenMeteo(raw, aqData, windUnit, pressureUnit, unit);
                 }
 
+                // WeatherAI.io is a dedicated astronomy source; when present its
+                // values take precedence, falling back to whatever the weather
+                // provider already supplied (Open-Meteo/WeatherAPI sun + moon).
                 if (waiAstroRaw) {
                     try {
-                        parsed.astronomy = parseWeatherAiAstronomy(waiAstroRaw);
+                        const wai  = parseWeatherAiAstronomy(waiAstroRaw);
+                        const base = parsed.astronomy ?? {};
+                        parsed.astronomy = {
+                            sunrise:          wai.sunrise          ?? base.sunrise          ?? null,
+                            sunset:           wai.sunset           ?? base.sunset           ?? null,
+                            moonrise:         wai.moonrise         ?? base.moonrise         ?? null,
+                            moonset:          wai.moonset          ?? base.moonset          ?? null,
+                            moonPhase:        wai.moonPhase        ?? base.moonPhase        ?? null,
+                            moonIllumination: wai.moonIllumination ?? base.moonIllumination ?? null,
+                        };
                     } catch (e) {
                         logError('[WeatherPrime] WeatherAI astronomy parse error:', e.message);
                     }

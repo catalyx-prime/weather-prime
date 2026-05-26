@@ -56,7 +56,9 @@ WeatherPrimeExtension          ← ES module default export; enable()/disable() 
         ├── _resolveLocation() ← GeoClue2 auto or reads manual lat/lon from GSettings
         └── WeatherPanel       ← plain JS class, owns all drop-down UI
               └── tabs: current / hourly / daily / airquality / astronomy / map
-                        (astronomy hidden unless a WeatherAI.io key is configured;
+                        (astronomy hidden only if no source supplies any astro data;
+                         sun times come from the active weather provider, moon detail
+                         from WeatherAPI or a WeatherAI.io key;
                          map hidden if RainViewer tile fetch failed)
 ```
 
@@ -82,10 +84,10 @@ _fetch(force)
   → if weather not fresh: Promise.all([
         fetchJSON(buildAirQualityUrl()),       // PM2.5/PM10 backfill
         fetchAlerts(),                          // NWS, US only
-        fetchWeatherAi('/astronomy', …)         // only if weatherai-key set
+        fetchWeatherAi('/astronomy', …)         // only if weatherai-key set; overlays moon detail
      ])
      then fetchJSON(buildOpenMeteoUrl()) OR fetchWeatherAPI()
-     then parseOpenMeteo() / parseWeatherAPI()
+     then parseOpenMeteo() / parseWeatherAPI()   // each emits astronomy (sun times always; moon from WeatherAPI)
   → WeatherPanel.setData({ current, hourly, daily, airquality, astronomy?, map?, alerts })
 ```
 
@@ -93,7 +95,7 @@ Parsed data shape:
 ```js
 {
   current:    { temp, feelsLike, humidity, wind, pressure, icon, desc,
-                windGust?, dewPoint?, visibility?, cloudCover?, sunrise?, sunset? },
+                windGust?, dewPoint?, visibility?, cloudCover? },
   hourly:     [{ time, temp, icon, precip, humidity, wind }, ...],   // next 12 hours
   daily:      [{ day,  hi,   lo, icon, precip, humidity, wind }, ...], // 7 days
   airquality: {
@@ -101,7 +103,8 @@ Parsed data shape:
     openweather: {...} | null,   // global 1–5 AQI + 8 pollutant concentrations
     pm25, pm10,                   // Open-Meteo fallback, always present
   },
-  astronomy:  { sunrise, sunset, moonrise, moonset, moonPhase, moonIllum, ... } | undefined,
+  astronomy:  { sunrise, sunset, moonrise, moonset, moonPhase, moonIllumination }, // any field may be null; tab hidden if all are
+  
   map:        { cells, radarPath, frameTime, zoom } | undefined,
   alerts:     [{ event, headline, desc, severity }],
 }
@@ -125,7 +128,7 @@ Defined in `schemas/org.gnome.shell.extensions.weather-prime.gschema.xml`. Key o
 |-----|------|---------|-------|
 | `api-provider` | string | `open-meteo` | `open-meteo` or `weatherapi` |
 | `weatherapi-key` | string | `''` | Required when provider is `weatherapi` |
-| `weatherai-key` | string | `''` | When set, powers the Astronomy tab (sunrise/sunset, moon). Tab is hidden if unset. Astronomy-only role — forecast still comes from `api-provider` |
+| `weatherai-key` | string | `''` | Optional astronomy overlay. The Astronomy tab works without it (sun times from the active provider, moon detail from WeatherAPI); when set, WeatherAI.io values take precedence and add moon data Open-Meteo lacks. Astronomy-only role — forecast still comes from `api-provider` |
 | `airnow-api-key` | string | `''` | US AirNow; per-pollutant AQI when a station is within ~25 mi |
 | `openweather-api-key` | string | `''` | OpenWeatherMap Air Pollution; global 1–5 AQI + 8 pollutant concentrations |
 | `aq-source` | string | `auto` | `auto` (AirNow → OpenWeatherMap → Open-Meteo), `airnow`, `openweather`, `open-meteo` |
