@@ -38,8 +38,8 @@ const WMO = {
     1:  {icon: '🌤️', desc: 'Mainly clear'},
     2:  {icon: '⛅',  desc: 'Partly cloudy'},
     3:  {icon: '☁️',  desc: 'Overcast'},
-    45: {icon: '🌫️', desc: 'Fog'},
-    48: {icon: '🌫️', desc: 'Rime fog'},
+    45: {icon: '🌁', desc: 'Fog'},
+    48: {icon: '🌁', desc: 'Rime fog'},
     51: {icon: '🌦️', desc: 'Light drizzle'},
     53: {icon: '🌦️', desc: 'Drizzle'},
     55: {icon: '🌦️', desc: 'Dense drizzle'},
@@ -401,7 +401,7 @@ function wApiIcon(condText, isDay) {
     if (t.includes('snow') || t.includes('blizzard')) return '❄️';
     if (t.includes('sleet') || t.includes('ice'))     return '🌨️';
     if (t.includes('rain') || t.includes('drizzle'))  return '🌧️';
-    if (t.includes('mist') || t.includes('fog'))      return '🌫️';
+    if (t.includes('mist') || t.includes('fog'))      return '🌁';
     if (t.includes('overcast'))                       return '☁️';
     if (t.includes('cloud'))                          return isDay ? '⛅' : '☁️';
     return isDay ? '☀️' : '🌙';
