@@ -880,6 +880,8 @@ class WeatherPanel {
         this._mapIndex      = 0;
         this._mapPlayBtn    = null;   // play/pause toggle on the Map tab
         this._mapUserPaused = true;   // paused by default; the loop plays only after the user hits ▶. Persists across re-renders
+        this._mapRequestCb  = null;   // indicator hook to lazily fetch radar when the Map tab is viewed
+        this._mapState      = 'loading';  // 'loading' | 'failed' — only shown while there are no tiles yet
 
         this.actor = vbox('wp-panel');
         this._build();
@@ -939,7 +941,7 @@ class WeatherPanel {
             tabBar.add_child(btn);
         });
         this._tabBtns.astronomy.hide();
-        this._tabBtns.map.hide();
+        // The Map tab stays visible; radar tiles load lazily on first view.
         this.actor.add_child(tabBar);
 
         // ── Scrollable content area ───────────────────────────────────────
@@ -972,6 +974,8 @@ class WeatherPanel {
             this._scroll.remove_style_class_name('wp-scroll-auto');
         }
         this._render();
+        // Selecting the Map tab triggers a lazy radar fetch (no-op if fresh).
+        if (id === 'map') this._mapRequestCb?.();
     }
 
     destroy() {
@@ -1004,6 +1008,21 @@ class WeatherPanel {
 
     onRefresh(cb)  { this._refreshCb  = cb; }
     onSettings(cb) { this._settingsCb = cb; }
+    onMapRequest(cb) { this._mapRequestCb = cb; }
+
+    get activeTab() { return this._tab; }
+
+    // Status shown on the Map tab while radar loads lazily: 'loading' shows a
+    // spinner, 'failed' shows the unavailable message. Once tiles arrive, the
+    // indicator delivers them via setData and the message is replaced.
+    setMapStatus(status) {
+        this._mapState = status;
+        if (this._tab === 'map') this._render();
+    }
+
+    // Re-render the current tab. Needed when panel-size changes, since the Map
+    // tab sizes its tiles in JS from the active size class rather than via CSS.
+    relayout() { this._render(); }
 
     setLocation(name) { this._locationLbl.set_text(name || 'Unknown'); }
 
@@ -1037,12 +1056,9 @@ class WeatherPanel {
             this._tabBtns.astronomy?.hide();
             if (this._tab === 'astronomy') this._selectTab('current');
         }
-        if (data.map) {
-            this._tabBtns.map?.show();
-        } else {
-            this._tabBtns.map?.hide();
-            if (this._tab === 'map') this._selectTab('current');
-        }
+        // The Map tab is always available; radar tiles are fetched lazily when
+        // the tab is first viewed (see WeatherIndicator._ensureMap).
+        this._tabBtns.map?.show();
         const dayCount = data.daily?.length ?? 7;
         if (this._tabBtns.daily) this._tabBtns.daily.label = `${dayCount}-Day`;
         this._render();
@@ -1291,7 +1307,8 @@ class WeatherPanel {
         const m   = this._data.map;
         const box = vbox('wp-map');
         if (!m) {
-            box.add_child(label('Map unavailable.', 'wp-status'));
+            const msg = this._mapState === 'failed' ? 'Map unavailable.' : 'Loading map…';
+            box.add_child(label(msg, 'wp-status'));
             this._content.add_child(box);
             return;
         }
@@ -1544,6 +1561,9 @@ class WeatherIndicator extends PanelMenu.Button {
         this._locName  = '';
         this._busy     = false;
         this._geoclue  = null;   // cached GeoClue client, created once and reused
+        this._geoLat   = null;   // coords of the last reverse-geocode; skip re-geocoding when unchanged
+        this._geoLon   = null;
+        this._mapBusy  = false;  // guards the lazy radar fetch
 
         this._cachedParsed = null;
         this._lastFetch    = 0;
@@ -1580,8 +1600,9 @@ class WeatherIndicator extends PanelMenu.Button {
 
         // ── Drop-down panel ───────────────────────────────────────────────
         this._panel = new WeatherPanel();
-        this._panel.onRefresh(()  => this._fetch(true));
+        this._panel.onRefresh(()  => { this._fetch(true); this._ensureMap(); });
         this._panel.onSettings(() => this._ext.openPreferences());
+        this._panel.onMapRequest(() => this._ensureMap());
         this._panel.setMapWebsite(this._settings.get_string('map-website'));
 
         const section = new PopupMenu.PopupMenuSection();
@@ -1589,7 +1610,7 @@ class WeatherIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(section);
 
         this._menuSignalId = this.menu.connect('open-state-changed', (_m, open) => {
-            if (open) { this._fetch(false); this._panel.resumeMap(); }
+            if (open) { this._fetch(false); this._ensureMap(); this._panel.resumeMap(); }
             else      { this._panel.pauseMap(); }
         });
 
@@ -1602,6 +1623,20 @@ class WeatherIndicator extends PanelMenu.Button {
                  key === 'location-name') &&
                 this._settings.get_boolean('location-auto'))
                 return;
+
+            // Purely visual keys never need a network refetch — restyle in place
+            // rather than dropping caches and re-downloading everything.
+            if (key === 'map-website') {
+                this._panel.setMapWebsite(this._settings.get_string('map-website'));
+                return;
+            }
+            if (key === 'color-scheme' || key === 'panel-position' || key === 'panel-size') {
+                this._updateTheme();
+                if (key === 'panel-size') this._panel.relayout();
+                return;
+            }
+
+            // Everything else affects the fetched data: drop caches and refetch.
             _session = null;
             this._cachedParsed = null;
             this._lastFetch    = 0;
@@ -1609,8 +1644,6 @@ class WeatherIndicator extends PanelMenu.Button {
             this._lastAqFetch  = 0;
             this._cachedMap    = null;
             this._lastMapFetch = 0;
-            this._panel.setMapWebsite(this._settings.get_string('map-website'));
-            this._updateTheme();
             this._restartTimer();
             this._fetch(true);
         });
@@ -1656,8 +1689,9 @@ class WeatherIndicator extends PanelMenu.Button {
     _startTimer() {
         const weatherMins = Math.max(5, this._settings.get_int('fetch-interval'));
         const aqMins      = Math.max(5, this._settings.get_int('aq-fetch-interval'));
-        const mapMins     = Math.max(RADAR_MIN_INTERVAL_MIN, this._settings.get_int('map-fetch-interval'));
-        const secs = Math.min(weatherMins, aqMins, mapMins) * 60;
+        // Radar is fetched lazily when the Map tab is viewed, so it no longer
+        // drives the background timer — only weather and air quality do.
+        const secs = Math.min(weatherMins, aqMins) * 60;
         this._timer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, secs, () => {
             this._fetch(false);
             return GLib.SOURCE_CONTINUE;
@@ -1708,9 +1742,19 @@ class WeatherIndicator extends PanelMenu.Button {
 
         const loc = this._geoclue?.get_location() ?? null;
         if (loc) {
-            this._lat     = loc.latitude;
-            this._lon     = loc.longitude;
+            this._lat = loc.latitude;
+            this._lon = loc.longitude;
+            // Reverse-geocoding only changes when we've actually moved. Skip the
+            // Nominatim request (and its fair-use rate limit) when we're within
+            // ~1 km of the coords we last resolved a name for. Otherwise this
+            // fires on every menu open and every timer tick.
+            if (this._locName && this._geoLat != null &&
+                Math.abs(this._lat - this._geoLat) < 0.01 &&
+                Math.abs(this._lon - this._geoLon) < 0.01)
+                return;
             this._locName = await reverseGeocode(this._lat, this._lon);
+            this._geoLat  = this._lat;
+            this._geoLon  = this._lon;
             return;
         }
 
@@ -1750,12 +1794,12 @@ class WeatherIndicator extends PanelMenu.Button {
             const now          = Date.now();
             const weatherMs    = Math.max(5, this._settings.get_int('fetch-interval')) * 60 * 1000;
             const aqMs         = Math.max(5, this._settings.get_int('aq-fetch-interval')) * 60 * 1000;
-            const mapMs        = Math.max(RADAR_MIN_INTERVAL_MIN, this._settings.get_int('map-fetch-interval')) * 60 * 1000;
             const weatherFresh = !force && this._cachedParsed && (now - this._lastFetch) < weatherMs;
             const aqFresh      = !force && this._cachedAq && (now - this._lastAqFetch) < aqMs;
-            const mapFresh     = !force && this._cachedMap && (now - this._lastMapFetch) < mapMs;
 
-            if (weatherFresh && aqFresh && mapFresh) {
+            // Radar is fetched lazily by _ensureMap when the Map tab is viewed,
+            // so it doesn't participate in this background freshness gate.
+            if (weatherFresh && aqFresh) {
                 this._panel.setData(this._cachedParsed, this.menu.isOpen);
                 return;
             }
@@ -1787,24 +1831,11 @@ class WeatherIndicator extends PanelMenu.Button {
                 this._lastAqFetch = Date.now();
             }
 
-            let mapTiles = mapFresh ? this._cachedMap : null;
-            if (!mapFresh) {
-                mapTiles = await fetchMapTiles(this._lat, this._lon).catch(e => {
-                    logError('[WeatherPrime] map tile fetch failed:', e.message);
-                    return null;
-                });
-                if (mapTiles) {
-                    this._cachedMap    = mapTiles;
-                    this._lastMapFetch = Date.now();
-                }
-            }
-
             let parsed;
             if (weatherFresh) {
                 parsed = this._cachedParsed;
                 parsed.airquality.airnow      = aqResult.airnow;
                 parsed.airquality.openweather = aqResult.openweather;
-                if (mapTiles) parsed.map = mapTiles;
             } else {
                 const waiKey = this._settings.get_string('weatherai-key').trim();
 
@@ -1861,7 +1892,10 @@ class WeatherIndicator extends PanelMenu.Button {
                 parsed.airquality.openweather = aqResult.openweather;
                 parsed.lat = this._lat;
                 parsed.lon = this._lon;
-                if (mapTiles) parsed.map = mapTiles;
+                // Preserve any radar already fetched for this location so the
+                // Map tab keeps its tiles across a weather refresh; _ensureMap
+                // refreshes them on demand when they go stale.
+                parsed.map = this._cachedMap;
 
                 if (this._settings.get_boolean('location-auto')) {
                     this._settings.set_double('location-latitude',  this._lat);
@@ -1891,6 +1925,42 @@ class WeatherIndicator extends PanelMenu.Button {
             logError('[WeatherPrime]', e.message);
         } finally {
             this._busy = false;
+        }
+    }
+
+    // Lazily fetch radar tiles, but only when the Map tab is actually being
+    // viewed. Skips the fetch when the cached radar is still within the refresh
+    // interval (RainViewer publishes at most every 10 min), so opening the menu
+    // or switching to the Map tab costs nothing while the data is fresh.
+    async _ensureMap() {
+        if (this._lat == null || this._panel.activeTab !== 'map') return;
+
+        const now   = Date.now();
+        const mapMs = Math.max(RADAR_MIN_INTERVAL_MIN, this._settings.get_int('map-fetch-interval')) * 60 * 1000;
+        if (this._cachedMap && (now - this._lastMapFetch) < mapMs) return;
+
+        if (this._mapBusy) return;
+        this._mapBusy = true;
+        // Show a spinner only when there's no prior radar to keep on screen;
+        // otherwise the stale frames stay visible until the refresh lands.
+        if (!this._cachedMap) this._panel.setMapStatus('loading');
+        try {
+            const tiles = await fetchMapTiles(this._lat, this._lon).catch(e => {
+                logError('[WeatherPrime] map tile fetch failed:', e.message);
+                return null;
+            });
+            if (tiles) {
+                this._cachedMap    = tiles;
+                this._lastMapFetch = Date.now();
+                if (this._cachedParsed) {
+                    this._cachedParsed.map = tiles;
+                    this._panel.setData(this._cachedParsed, this.menu.isOpen);
+                }
+            } else if (!this._cachedMap) {
+                this._panel.setMapStatus('failed');
+            }
+        } finally {
+            this._mapBusy = false;
         }
     }
 
