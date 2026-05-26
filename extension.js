@@ -549,6 +549,60 @@ function parseWeatherAiAstronomy(data) {
     };
 }
 
+// ── USNO (US Naval Observatory, keyless) ──────────────────────────────────
+// Free, no key, authoritative. Adds solar noon (the sun's upper transit) plus
+// the dates of the next new and full moons — detail no weather provider gives.
+// Data changes slowly, so this piggybacks on the weather fetch TTL. Each call
+// degrades to null independently; the Astronomy tab simply omits missing rows.
+
+const USNO_BASE = 'https://aa.usno.navy.mil/api';
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function fetchUsnoAstronomy(lat, lon) {
+    const now  = new Date();
+    const date = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+    // USNO wants an east-positive UTC offset in hours (may be fractional). We
+    // use the device's offset, which matches the location for auto-located
+    // users; a manually-set distant location shows solar noon in device time.
+    const tz   = -now.getTimezoneOffset() / 60;
+    const oneday = new URLSearchParams({ date, coords: `${lat},${lon}`, tz: String(tz) });
+    // Any 4 consecutive primary phases span a full cycle, so nump=4 always
+    // yields exactly one New Moon and one Full Moon.
+    const phases = new URLSearchParams({ date, nump: '4' });
+    return Promise.all([
+        fetchJSON(`${USNO_BASE}/rstt/oneday?${oneday}`).catch(() => null),
+        fetchJSON(`${USNO_BASE}/moon/phases/date?${phases}`).catch(() => null),
+    ]).catch(() => [null, null]);
+}
+
+// Format a USNO phase entry (UT year/month/day/time) as a local "Mon D" date.
+function usnoPhaseDate(p) {
+    if (!p) return null;
+    const m  = String(p.time).match(/(\d{1,2}):(\d{2})/);
+    const hh = m ? parseInt(m[1], 10) : 0;
+    const mm = m ? parseInt(m[2], 10) : 0;
+    const d  = new Date(Date.UTC(p.year, p.month - 1, p.day, hh, mm));
+    return `${MONTH_ABBR[d.getMonth()]} ${d.getDate()}`;
+}
+
+function parseUsno(oneday, phases) {
+    const out = { solarNoon: null, nextNewMoon: null, nextFullMoon: null };
+
+    const sun = oneday?.properties?.data?.sundata;
+    if (Array.isArray(sun)) {
+        const noon = sun.find(s => s.phen === 'Upper Transit');
+        if (noon?.time) out.solarNoon = formatTime(noon.time);
+    }
+
+    const pd = phases?.phasedata;
+    if (Array.isArray(pd)) {
+        out.nextNewMoon  = usnoPhaseDate(pd.find(p => p.phase === 'New Moon'));
+        out.nextFullMoon = usnoPhaseDate(pd.find(p => p.phase === 'Full Moon'));
+    }
+    return out;
+}
+
 // ── AirNow (US EPA, free with registration) ───────────────────────────────
 
 async function fetchAirNow(lat, lon, key) {
@@ -1049,7 +1103,8 @@ class WeatherPanel {
         this._renderAlertsBanner(data.alerts ?? []);
         const a = data.astronomy;
         const hasAstro = !!a && (a.sunrise || a.sunset || a.moonrise || a.moonset ||
-                                 a.moonPhase || a.moonIllumination != null);
+                                 a.moonPhase || a.moonIllumination != null ||
+                                 a.solarNoon || a.nextNewMoon || a.nextFullMoon);
         if (hasAstro) {
             this._tabBtns.astronomy?.show();
         } else {
@@ -1523,8 +1578,9 @@ class WeatherPanel {
         };
 
         addGrid([
-            ['🌞 Sunrise', a.sunrise],
-            ['🌜 Sunset',  a.sunset],
+            ['🌞 Sunrise',    a.sunrise],
+            ['☀️ Solar Noon', a.solarNoon],
+            ['🌜 Sunset',     a.sunset],
         ]);
         addGrid([
             ['🌙 Moonrise', a.moonrise],
@@ -1541,6 +1597,14 @@ class WeatherPanel {
                 right.add_child(label(`${a.moonIllumination}% illuminated`, 'wp-astro-phase-illum'));
             row.add_child(right);
             box.add_child(row);
+        }
+
+        if (a.nextNewMoon || a.nextFullMoon) {
+            box.add_child(label('Upcoming', 'wp-section-title'));
+            addGrid([
+                ['🌑 New Moon',  a.nextNewMoon],
+                ['🌕 Full Moon', a.nextFullMoon],
+            ]);
         }
 
         this._content.add_child(box);
@@ -1839,7 +1903,7 @@ class WeatherIndicator extends PanelMenu.Button {
             } else {
                 const waiKey = this._settings.get_string('weatherai-key').trim();
 
-                const [aqData, alerts, waiAstroRaw] = await Promise.all([
+                const [aqData, alerts, waiAstroRaw, usnoRaw] = await Promise.all([
                     fetchJSON(buildAirQualityUrl(this._lat, this._lon)).catch(() => null),
                     fetchAlerts(this._lat, this._lon),
                     waiKey
@@ -1848,6 +1912,7 @@ class WeatherIndicator extends PanelMenu.Button {
                             return null;
                         })
                         : Promise.resolve(null),
+                    fetchUsnoAstronomy(this._lat, this._lon),
                 ]);
 
                 if (provider === 'weatherapi') {
@@ -1884,6 +1949,23 @@ class WeatherIndicator extends PanelMenu.Button {
                         };
                     } catch (e) {
                         logError('[WeatherPrime] WeatherAI astronomy parse error:', e.message);
+                    }
+                }
+
+                // USNO adds solar noon and next new/full-moon dates on top of
+                // whatever the providers above supplied (purely additive).
+                if (usnoRaw) {
+                    try {
+                        const u    = parseUsno(usnoRaw[0], usnoRaw[1]);
+                        const base = parsed.astronomy ?? {};
+                        parsed.astronomy = {
+                            ...base,
+                            solarNoon:    u.solarNoon,
+                            nextNewMoon:  u.nextNewMoon,
+                            nextFullMoon: u.nextFullMoon,
+                        };
+                    } catch (e) {
+                        logError('[WeatherPrime] USNO astronomy parse error:', e.message);
                     }
                 }
 

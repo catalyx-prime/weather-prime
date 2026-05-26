@@ -58,7 +58,8 @@ WeatherPrimeExtension          ← ES module default export; enable()/disable() 
               └── tabs: current / hourly / daily / airquality / astronomy / map
                         (astronomy hidden only if no source supplies any astro data;
                          sun times come from the active weather provider, moon detail
-                         from WeatherAPI or a WeatherAI.io key;
+                         from WeatherAPI or a WeatherAI.io key, solar noon + next
+                         new/full moon dates from USNO (keyless);
                          map hidden if RainViewer tile fetch failed)
 ```
 
@@ -84,10 +85,12 @@ _fetch(force)
   → if weather not fresh: Promise.all([
         fetchJSON(buildAirQualityUrl()),       // PM2.5/PM10 backfill
         fetchAlerts(),                          // NWS, US only
-        fetchWeatherAi('/astronomy', …)         // only if weatherai-key set; overlays moon detail
+        fetchWeatherAi('/astronomy', …),        // only if weatherai-key set; overlays moon detail
+        fetchUsnoAstronomy()                    // keyless; adds solar noon + next new/full moon dates
      ])
      then fetchJSON(buildOpenMeteoUrl()) OR fetchWeatherAPI()
      then parseOpenMeteo() / parseWeatherAPI()   // each emits astronomy (sun times always; moon from WeatherAPI)
+     then merge WeatherAI overlay, then merge USNO (additive: solarNoon, nextNewMoon, nextFullMoon)
   → WeatherPanel.setData({ current, hourly, daily, airquality, astronomy?, map?, alerts })
 ```
 
@@ -103,7 +106,9 @@ Parsed data shape:
     openweather: {...} | null,   // global 1–5 AQI + 8 pollutant concentrations
     pm25, pm10,                   // Open-Meteo fallback, always present
   },
-  astronomy:  { sunrise, sunset, moonrise, moonset, moonPhase, moonIllumination }, // any field may be null; tab hidden if all are
+  astronomy:  { sunrise, sunset, moonrise, moonset, moonPhase, moonIllumination,
+                solarNoon, nextNewMoon, nextFullMoon }, // any field may be null; tab hidden if all sun/moon time/phase fields are.
+                                                        // solarNoon + next moon dates come from USNO (keyless); the latter two are "Mon D" date strings
   
   map:        { cells, frames: [{ path, time, kind }], zoom } | undefined,
               // frames are radar tiles oldest→newest (past then nowcast);
@@ -157,6 +162,7 @@ After editing the schema XML, always recompile: `glib-compile-schemas <path>/sch
 | WeatherAI.io | Yes | Astronomy data only (sunrise/sunset, moon phase, illumination). Tab hidden without a key |
 | AirNow (`airnowapi.org`) | Yes (free) | US full AQI by pollutant; requires a station within ~25 mi |
 | OpenWeatherMap (`api.openweathermap.org/data/2.5/air_pollution`) | Yes (free) | Global air pollution; coarse 1–5 AQI but always returns all 8 pollutants |
+| USNO (`aa.usno.navy.mil/api`) | No | Solar noon (sun upper transit) + dates of the next new & full moon for the Astronomy tab; keyless, piggybacks on weather-fetch TTL, degrades silently |
 | RainViewer (`api.rainviewer.com`) | No | Precipitation radar tiles for the Map tab; 10-minute publish cadence |
 | Esri World Imagery | No | Satellite base layer under the radar tiles on the Map tab |
 | NWS (`api.weather.gov`) | No | US weather alerts |
