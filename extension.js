@@ -255,7 +255,13 @@ function formatTime(iso) {
 let _session = null;
 function getSession() {
     if (!_session)
-        _session = new Soup.Session({user_agent: 'WeatherPrime/1.0'});
+        _session = new Soup.Session({
+            user_agent:   'WeatherPrime/1.0',
+            // Cap stalled connections so a hung endpoint surfaces as an error
+            // instead of leaving _fetch()'s _busy guard latched forever.
+            timeout:      30,
+            idle_timeout: 30,
+        });
     return _session;
 }
 
@@ -1014,8 +1020,13 @@ class WeatherPanel {
         this._content.add_child(box);
     }
 
-    setData(data) {
+    setData(data, render = true) {
         this._data = data;
+        // Background refreshes land while the menu is closed; storing the data
+        // is enough then. The panel is rebuilt when the menu opens (open-state-
+        // changed → _fetch → setData with render=true), so skipping the full
+        // destroy_all_children/rebuild here avoids wasted work nobody can see.
+        if (!render) return;
         this._renderAlertsBanner(data.alerts ?? []);
         const a = data.astronomy;
         const hasAstro = !!a && (a.sunrise || a.sunset || a.moonrise || a.moonset ||
@@ -1532,6 +1543,7 @@ class WeatherIndicator extends PanelMenu.Button {
         this._lon      = null;
         this._locName  = '';
         this._busy     = false;
+        this._geoclue  = null;   // cached GeoClue client, created once and reused
 
         this._cachedParsed = null;
         this._lastFetch    = 0;
@@ -1581,7 +1593,15 @@ class WeatherIndicator extends PanelMenu.Button {
             else      { this._panel.pauseMap(); }
         });
 
-        this._settingsId = this._settings.connect('changed', () => {
+        this._settingsId = this._settings.connect('changed', (_s, key) => {
+            // In auto mode _fetch() writes the resolved coords/name back to
+            // these keys as a cache. Those self-writes must not wipe the caches
+            // and trigger a second full fetch. Manual location edits happen only
+            // when location-auto is off, so this never suppresses user intent.
+            if ((key === 'location-latitude' || key === 'location-longitude' ||
+                 key === 'location-name') &&
+                this._settings.get_boolean('location-auto'))
+                return;
             _session = null;
             this._cachedParsed = null;
             this._lastFetch    = 0;
@@ -1659,31 +1679,51 @@ class WeatherIndicator extends PanelMenu.Button {
             return;
         }
 
-        await new Promise((resolve, reject) => {
-            Geoclue.Simple.new('weather-prime', Geoclue.AccuracyLevel.CITY, null,
-                async (_obj, result) => {
-                    try {
-                        const simple  = Geoclue.Simple.new_finish(result);
-                        const loc     = simple.get_location();
-                        this._lat     = loc.latitude;
-                        this._lon     = loc.longitude;
-                        this._locName = await reverseGeocode(this._lat, this._lon);
-                        resolve();
-                    } catch (e) {
-                        const lat = this._settings.get_double('location-latitude');
-                        const lon = this._settings.get_double('location-longitude');
-                        if (lat !== 0 || lon !== 0) {
-                            this._lat     = lat;
-                            this._lon     = lon;
-                            this._locName = this._settings.get_string('location-name') || 'Last known location';
-                            resolve();
-                        } else {
-                            reject(new Error('Location unavailable. Set manually in Preferences.'));
-                        }
+        // Create the GeoClue client once and reuse it across fetches. A fresh
+        // client per fetch churns D-Bus every refresh and leaves teardown to GC;
+        // GClueSimple instead pushes location updates into the cached object.
+        if (!this._geoclue) {
+            this._geoclue = await new Promise(resolve => {
+                // If geoclue never calls back, resolve null after 15s so _fetch
+                // falls back to last-known coords rather than hanging forever.
+                let settled = false;
+                const timeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 15, () => {
+                    if (!settled) {
+                        settled = true;
+                        logError('[WeatherPrime] GeoClue init timed out');
+                        resolve(null);
                     }
-                }
-            );
-        });
+                    return GLib.SOURCE_REMOVE;
+                });
+                Geoclue.Simple.new('weather-prime', Geoclue.AccuracyLevel.CITY, null,
+                    (_obj, result) => {
+                        if (settled) return;
+                        settled = true;
+                        GLib.source_remove(timeoutId);
+                        try { resolve(Geoclue.Simple.new_finish(result)); }
+                        catch (e) { logError('[WeatherPrime] GeoClue init failed:', e.message); resolve(null); }
+                    });
+            });
+        }
+
+        const loc = this._geoclue?.get_location() ?? null;
+        if (loc) {
+            this._lat     = loc.latitude;
+            this._lon     = loc.longitude;
+            this._locName = await reverseGeocode(this._lat, this._lon);
+            return;
+        }
+
+        // GeoClue unavailable — fall back to the last known coords from settings.
+        const lat = this._settings.get_double('location-latitude');
+        const lon = this._settings.get_double('location-longitude');
+        if (lat !== 0 || lon !== 0) {
+            this._lat     = lat;
+            this._lon     = lon;
+            this._locName = this._settings.get_string('location-name') || 'Last known location';
+            return;
+        }
+        throw new Error('Location unavailable. Set manually in Preferences.');
     }
 
     async _fetch(force = false) {
@@ -1716,7 +1756,7 @@ class WeatherIndicator extends PanelMenu.Button {
             const mapFresh     = !force && this._cachedMap && (now - this._lastMapFetch) < mapMs;
 
             if (weatherFresh && aqFresh && mapFresh) {
-                this._panel.setData(this._cachedParsed);
+                this._panel.setData(this._cachedParsed, this.menu.isOpen);
                 return;
             }
 
@@ -1842,7 +1882,7 @@ class WeatherIndicator extends PanelMenu.Button {
             if (alerts.length > 0) this._pillAlert.show();
             else                   this._pillAlert.hide();
 
-            this._panel.setData(parsed);
+            this._panel.setData(parsed, this.menu.isOpen);
 
         } catch (e) {
             this._panel.setError(e.message);
@@ -1864,6 +1904,10 @@ class WeatherIndicator extends PanelMenu.Button {
         if (this._ifaceSettings && this._ifaceSettingsId) {
             this._ifaceSettings.disconnect(this._ifaceSettingsId);
             this._ifaceSettings = null;
+        }
+        if (this._geoclue) {
+            try { this._geoclue.get_client()?.stop(); } catch { /* no client under portal */ }
+            this._geoclue = null;
         }
         this._panel?.destroy();
         this._panel = null;
