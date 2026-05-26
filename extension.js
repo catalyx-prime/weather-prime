@@ -846,7 +846,7 @@ class WeatherPanel {
         this._mapSite       = null;
         this._mapIndex      = 0;
         this._mapPlayBtn    = null;   // play/pause toggle on the Map tab
-        this._mapUserPaused = false;  // user's explicit pause; persists across re-renders
+        this._mapUserPaused = true;   // paused by default; the loop plays only after the user hits ▶. Persists across re-renders
 
         this.actor = vbox('wp-panel');
         this._build();
