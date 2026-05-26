@@ -206,6 +206,10 @@
     spacing: 4px;
 }
 
+.wp-detail-row {
+    spacing: 4px;
+}
+
 .wp-detail-cell {
     background-color: rgba(255, 255, 255, 0.07);
     border-radius: 8px;
@@ -727,6 +731,10 @@
     spacing: 5px;
 }
 
+.wp-panel.wp-medium .wp-detail-row {
+    spacing: 5px;
+}
+
 .wp-panel.wp-medium .wp-detail-cell {
     border-radius: 10px;
     padding: 8px 10px;
@@ -1025,6 +1033,10 @@
 }
 
 .wp-panel.wp-large .wp-detail-grid {
+    spacing: 6px;
+}
+
+.wp-panel.wp-large .wp-detail-row {
     spacing: 6px;
 }
 

@@ -92,7 +92,8 @@ _fetch(force)
 Parsed data shape:
 ```js
 {
-  current:    { temp, feelsLike, humidity, wind, pressure, icon, desc },
+  current:    { temp, feelsLike, humidity, wind, pressure, icon, desc,
+                windGust?, dewPoint?, visibility?, cloudCover?, sunrise?, sunset? },
   hourly:     [{ time, temp, icon, precip, humidity, wind }, ...],   // next 12 hours
   daily:      [{ day,  hi,   lo, icon, precip, humidity, wind }, ...], // 7 days
   airquality: {

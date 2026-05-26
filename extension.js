@@ -189,6 +189,18 @@ function fmtPressure(hpa, pressureUnit, trend = '') {
     return `${pre}${Math.round(hpa)} hPa`;
 }
 
+// Visibility comes from the APIs in metres. Show miles for Fahrenheit users,
+// kilometres otherwise; drop the decimal once we're past 10 (mi|km) for tidiness.
+function fmtVisibility(meters, unit) {
+    if (meters == null) return null;
+    if (unit === 'fahrenheit') {
+        const mi = meters / 1609.34;
+        return `${mi >= 10 ? Math.round(mi) : mi.toFixed(1)} mi`;
+    }
+    const km = meters / 1000;
+    return `${km >= 10 ? Math.round(km) : km.toFixed(1)} km`;
+}
+
 // Compare pressure now vs 3 hours ago; threshold 2 hPa = meaningful change
 function pressureTrend(pressureArray, currentIdx) {
     if (!pressureArray || currentIdx < 3) return '';
@@ -269,7 +281,7 @@ function buildOpenMeteoUrl(lat, lon, unit) {
         current: [
             'temperature_2m', 'apparent_temperature', 'relative_humidity_2m',
             'wind_speed_10m', 'wind_direction_10m', 'weather_code', 'surface_pressure',
-            'is_day',
+            'is_day', 'wind_gusts_10m', 'dew_point_2m', 'visibility', 'cloud_cover',
         ].join(','),
         hourly:           'temperature_2m,relative_humidity_2m,weather_code,surface_pressure,precipitation_probability,wind_speed_10m,wind_direction_10m,is_day',
         daily:            'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset',
@@ -348,6 +360,12 @@ function parseOpenMeteo(data, aqData, windUnit, pressureUnit, unit) {
             humidity:  `${c.relative_humidity_2m ?? '--'}%`,
             wind:      fmtWind(c.wind_speed_10m, windDir(c.wind_direction_10m), windUnit),
             pressure:  fmtPressure(c.surface_pressure, pressureUnit, trend),
+            windGust:   c.wind_gusts_10m != null ? fmtWind(c.wind_gusts_10m, null, windUnit) : null,
+            dewPoint:   c.dew_point_2m   != null ? fmt(c.dew_point_2m, unit) : null,
+            visibility: fmtVisibility(c.visibility, unit),
+            cloudCover: c.cloud_cover    != null ? `${Math.round(c.cloud_cover)}%` : null,
+            sunrise:    formatTime(d.sunrise?.[0]),
+            sunset:     formatTime(d.sunset?.[0]),
             icon:      wmo(c.weather_code, c.is_day ?? 1).icon,
             desc:      wmo(c.weather_code, c.is_day ?? 1).desc,
         },
@@ -427,6 +445,13 @@ function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit) {
             humidity:  `${c.humidity}%`,
             wind:      fmtWind(c.wind_mph, c.wind_dir, windUnit),
             pressure:  fmtPressure(c.pressure_mb, pressureUnit, trend),
+            windGust:   c.gust_mph != null ? fmtWind(c.gust_mph, null, windUnit) : null,
+            dewPoint:   (isF ? c.dewpoint_f : c.dewpoint_c) != null
+                            ? fmt(isF ? c.dewpoint_f : c.dewpoint_c, unit) : null,
+            visibility: c.vis_km != null ? fmtVisibility(c.vis_km * 1000, unit) : null,
+            cloudCover: c.cloud != null ? `${c.cloud}%` : null,
+            sunrise:    data.forecast.forecastday?.[0]?.astro?.sunrise ?? null,
+            sunset:     data.forecast.forecastday?.[0]?.astro?.sunset  ?? null,
             icon:      wApiIcon(c.condition.text, c.is_day),
             desc:      c.condition.text,
         },
@@ -964,18 +989,37 @@ class WeatherPanel {
         top.add_child(right);
         box.add_child(top);
 
-        const grid = hbox('wp-detail-grid');
-        [
-            ['Feels like', c.feelsLike],
-            ['Humidity',   c.humidity],
-            ['Wind',       c.wind],
-            ['Pressure',   c.pressure],
-        ].forEach(([k, v]) => {
-            const cell = vbox('wp-detail-cell');
-            cell.add_child(label(k, 'wp-detail-key'));
-            cell.add_child(label(v, 'wp-detail-val'));
-            grid.add_child(cell);
-        });
+        // First four are always present; the rest depend on what the active
+        // provider returns. Lay out four-per-row, padding the final row with
+        // transparent spacers so the columns stay aligned.
+        const cells = [
+            ['Feels like',  c.feelsLike],
+            ['Humidity',    c.humidity],
+            ['Wind',        c.wind],
+            ['Pressure',    c.pressure],
+            ['Gusts',       c.windGust],
+            ['Dew point',   c.dewPoint],
+            ['Visibility',  c.visibility],
+            ['Cloud',       c.cloudCover],
+            ['🌅 Sunrise',  c.sunrise],
+            ['🌇 Sunset',   c.sunset],
+        ].filter(([, v]) => v != null);
+
+        const grid = vbox('wp-detail-grid');
+        const COLS = 4;
+        for (let i = 0; i < cells.length; i += COLS) {
+            const row = hbox('wp-detail-row');
+            const slice = cells.slice(i, i + COLS);
+            slice.forEach(([k, v]) => {
+                const cell = vbox('wp-detail-cell');
+                cell.add_child(label(k, 'wp-detail-key'));
+                cell.add_child(label(v, 'wp-detail-val'));
+                row.add_child(cell);
+            });
+            for (let p = slice.length; p < COLS; p++)
+                row.add_child(spacer());
+            grid.add_child(row);
+        }
         box.add_child(grid);
         this._content.add_child(box);
     }
