@@ -845,6 +845,8 @@ class WeatherPanel {
         this._mapCaptionLbl = null;
         this._mapSite       = null;
         this._mapIndex      = 0;
+        this._mapPlayBtn    = null;   // play/pause toggle on the Map tab
+        this._mapUserPaused = false;  // user's explicit pause; persists across re-renders
 
         this.actor = vbox('wp-panel');
         this._build();
@@ -1331,6 +1333,24 @@ class WeatherPanel {
         button.connect('destroy', () => button.disconnect(sid));
         box.add_child(button);
 
+        // Play/pause toggle — only meaningful when there's a loop to control.
+        let playBtn = null;
+        if (frames.length > 1) {
+            const controls = new St.BoxLayout({
+                style_class: 'wp-map-controls',
+                x_align:     Clutter.ActorAlign.CENTER,
+            });
+            playBtn = new St.Button({
+                style_class: 'wp-map-ctrl',
+                label:       this._mapUserPaused ? '▶' : '⏸',
+                can_focus:   true,
+            });
+            const pid = playBtn.connect('clicked', () => this._toggleMapPlay());
+            playBtn.connect('destroy', () => playBtn.disconnect(pid));
+            controls.add_child(playBtn);
+            box.add_child(controls);
+        }
+
         const captionLbl = label('', 'wp-map-caption');
         captionLbl.x_align = Clutter.ActorAlign.CENTER;
         box.add_child(captionLbl);
@@ -1338,7 +1358,7 @@ class WeatherPanel {
         this._content.add_child(box);
 
         // Drives the loop and keeps the caption in sync with the shown frame.
-        this._startMapAnimation(frameIcons, frames, captionLbl, site, lastIdx);
+        this._startMapAnimation(frameIcons, frames, captionLbl, site, lastIdx, playBtn);
     }
 
     // ── Radar loop animation ──────────────────────────────────────────────
@@ -1370,14 +1390,17 @@ class WeatherPanel {
         });
     }
 
-    _startMapAnimation(frameIcons, frames, captionLbl, site, restingIdx) {
+    _startMapAnimation(frameIcons, frames, captionLbl, site, restingIdx, playBtn) {
         this._stopMapAnimation();
         this._mapSite       = site;
         this._mapFrames     = frames;
         this._mapCaptionLbl = captionLbl;
+        this._mapPlayBtn    = playBtn ?? null;
         if (!frameIcons || frameIcons.length === 0) return;
         this._mapIcons = frameIcons;
-        if (frameIcons.length === 1) {            // nothing to animate
+        this._updateMapPlayBtn();
+        if (frameIcons.length === 1 || this._mapUserPaused) {
+            // Nothing to animate, or the user paused: rest on the latest frame.
             this._mapIndex = restingIdx;
             this._showMapFrame(restingIdx);
             return;
@@ -1388,22 +1411,42 @@ class WeatherPanel {
     }
 
     // Stop and forget the loop — call before the frame icons are destroyed.
+    // Leaves _mapUserPaused intact so the preference survives a re-render.
     _stopMapAnimation() {
         if (this._mapAnimId) { GLib.source_remove(this._mapAnimId); this._mapAnimId = null; }
         this._mapIcons      = null;
         this._mapFrames     = null;
         this._mapCaptionLbl = null;
         this._mapSite       = null;
+        this._mapPlayBtn    = null;
+    }
+
+    // Play/pause button handler: flip the user preference and the timer to match.
+    _toggleMapPlay() {
+        this._mapUserPaused = !this._mapUserPaused;
+        if (this._mapUserPaused) {
+            if (this._mapAnimId) { GLib.source_remove(this._mapAnimId); this._mapAnimId = null; }
+        } else if (!this._mapAnimId && this._mapIcons && this._mapIcons.length > 1) {
+            this._scheduleMapFrame();
+        }
+        this._updateMapPlayBtn();
+    }
+
+    _updateMapPlayBtn() {
+        if (this._mapPlayBtn) this._mapPlayBtn.label = this._mapUserPaused ? '▶' : '⏸';
     }
 
     // Halt playback without dropping the frame references (menu closed).
+    // Does not touch _mapUserPaused — this is incidental, not a user pause.
     pauseMap() {
         if (this._mapAnimId) { GLib.source_remove(this._mapAnimId); this._mapAnimId = null; }
     }
 
-    // Resume playback if we're still on the map tab with frames intact.
+    // Resume playback if we're still on the map tab with frames intact and the
+    // user hasn't explicitly paused.
     resumeMap() {
-        if (this._tab === 'map' && this._mapIcons && this._mapIcons.length > 1 && !this._mapAnimId)
+        if (this._tab === 'map' && this._mapIcons && this._mapIcons.length > 1
+            && !this._mapAnimId && !this._mapUserPaused)
             this._scheduleMapFrame();
     }
 
