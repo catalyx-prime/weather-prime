@@ -308,6 +308,23 @@
     color: rgba(255, 255, 255, 0.9);
 }
 
+/* Last-24h precipitation block (label + total + hourly sparkline) */
+.wp-precip24h {
+    background-color: rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
+    padding: 6px 8px;
+    spacing: 4px;
+}
+
+.wp-precip24h-head {
+    spacing: 6px;
+}
+
+/* Height is set inline from the panel-size setting; width expands to fill */
+.wp-precip-spark {
+    margin-top: 2px;
+}
+
 /* ── Hourly forecast ────────────────────────────────────────────────────── */
 
 .wp-hourly {
@@ -655,6 +672,10 @@
 
 .wp-panel.wp-light .wp-detail-val {
     color: rgba(0, 0, 0, 0.85);
+}
+
+.wp-panel.wp-light .wp-precip24h {
+    background-color: rgba(0, 0, 0, 0.05);
 }
 
 .wp-panel.wp-light .wp-hour-time {

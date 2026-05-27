@@ -6,6 +6,7 @@ import GLib from 'gi://GLib';
 import Soup from 'gi://Soup';
 import Geoclue from 'gi://Geoclue';
 import Pango from 'gi://Pango';
+import Cairo from 'gi://cairo';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
@@ -218,6 +219,23 @@ function fmtPrecipTotal(total, unit) {
     return `${total.toFixed(1)} mm`;
 }
 
+// Format a last-24h snowfall total. This is snow *depth*, not liquid-water
+// equivalent, so it reads much larger than the precip total (~7× at typical
+// ratios) and uses its own unit: inches when imperial (same as precip), else
+// centimetres (Open-Meteo reports snowfall in cm even though precipitation is
+// mm — see buildOpenMeteoPrecip24hUrl). Returns null for missing or zero snow
+// so the caller drops the line entirely; unlike precip there's no "0" state —
+// no measurable snow simply means no snow line.
+function fmtSnowTotal(total, unit) {
+    if (total == null || total <= 0) return null;
+    if (unit === 'fahrenheit') {
+        if (total < 0.1) return '<0.1 in';
+        return `${total.toFixed(1)} in`;
+    }
+    if (total < 0.1) return '<0.1 cm';
+    return `${total.toFixed(1)} cm`;
+}
+
 // Compare pressure now vs 3 hours ago; threshold 2 hPa = meaningful change
 function pressureTrend(pressureArray, currentIdx) {
     if (!pressureArray || currentIdx < 3) return '';
@@ -363,16 +381,21 @@ function buildOpenMeteoDailyWindUrl(lat, lon) {
 // from the main request because past_hours there balloons the hourly array and
 // past_days pollutes the 7-day forecast (see the parallel fetch in _fetch).
 // precipitation_unit tracks the temperature unit so the sum needs no conversion.
+// `snowfall` rides along so the Current tab can break out how much of that
+// precipitation fell as snow — `precipitation` is liquid-water equivalent and
+// would otherwise show a melted-down number with no hint it was snow. Note the
+// two use different units: precipitation_unit=inch yields inches for both, but
+// the metric default gives precipitation in mm and snowfall in cm.
 function buildOpenMeteoPrecip24hUrl(lat, lon, unit) {
     const params = new URLSearchParams({
         latitude:           lat,
         longitude:          lon,
-        hourly:             'precipitation',
+        hourly:             'precipitation,snowfall',
         timezone:           'auto',
         past_hours:         24,
         forecast_hours:     1,
         precipitation_unit: unit === 'fahrenheit' ? 'inch' : 'mm',
-        // Query several models and let precip24hTotal take the per-hour max.
+        // Query several models and let precip24hSeries take the per-hour max.
         // Open-Meteo's default best_match (GFS in the US) routinely zeroes out
         // convective rain that ECMWF/ICON captured — it will even report a 96%
         // precip *probability* alongside 0 *amount* — so a single model silently
@@ -380,7 +403,7 @@ function buildOpenMeteoPrecip24hUrl(lat, lon, unit) {
         // saw the storm still counts. Each model arrives as its own
         // `precipitation_<model>` array on the shared time axis.
         models:             'ecmwf_ifs025,icon_seamless,gfs_seamless',
-        // UTC epochs, not local ISO strings: precip24hTotal compares against
+        // UTC epochs, not local ISO strings: precip24hSeries compares against
         // the device clock, so an unanchored local timestamp would skew the
         // 24h window for a manually-set location in another timezone.
         timeformat:         'unixtime',
@@ -399,44 +422,59 @@ function dailyWindDirMap(omWindRaw) {
     return map;
 }
 
-// Sum the hourly precipitation from a buildOpenMeteoPrecip24hUrl response over
-// the trailing 24h ending now. The request asks for several models, each of
-// which arrives as its own `precipitation_<model>` array on the shared time
-// axis; we take the max across models for each hour, then sum, so a storm that
-// only some models captured isn't lost (best_match/GFS routinely zeroes out
-// convective rain — see buildOpenMeteoPrecip24hUrl). Falls back to a bare
-// `precipitation` key for any single-model response.
+// The trailing-24h hourly precipitation and snowfall from a
+// buildOpenMeteoPrecip24hUrl response, as two index-aligned per-hour arrays
+// (oldest→newest): `precip` is liquid-water equivalent (rain + melted snow) in
+// the request's unit, `snow` is snow depth (inches imperial, else cm). The
+// Current tab sums `precip` for the displayed total and draws it as a
+// sparkline, sums `snow` for a separate snowfall total, and uses each hour's
+// `snow > 0` to colour snow hours in the sparkline.
+//
+// The request asks for several models, each arriving as its own
+// `precipitation_<model>` / `snowfall_<model>` array on the shared time axis;
+// we take the max across models per hour so a storm only some models captured
+// isn't lost (best_match/GFS routinely zeroes out convective rain — see
+// buildOpenMeteoPrecip24hUrl). Falls back to bare `precipitation`/`snowfall`
+// keys for a single-model response.
 //
 // Times are unixtime (UTC epoch seconds); Open-Meteo stamps each hourly bucket
-// with its start, so a value at time T covers T..T+1h and we count buckets whose
-// start is within the last 24h. Returns null when the data is missing (so the
-// Current tab hides the cell) but 0 when it's genuinely dry. Unit is whatever the
-// request asked for — inches or mm — and is formatted by fmtPrecipTotal.
-function precip24hTotal(omRaw) {
+// with its start, so a value at time T covers T..T+1h and we keep buckets whose
+// start is within the last 24h. An hour is kept if either variable reported a
+// value (so the two arrays stay aligned); a missing one is filled with 0.
+// Returns null when nothing is available (so the Current tab hides the block);
+// an all-zero precip array means measured-but-dry.
+function precip24hSeries(omRaw) {
     const t = omRaw?.hourly?.time;
     if (!Array.isArray(t)) return null;
-    const series = Object.keys(omRaw.hourly)
-        .filter(k => k === 'precipitation' || k.startsWith('precipitation_'))
+    const pick = prefix => Object.keys(omRaw.hourly)
+        .filter(k => k === prefix || k.startsWith(prefix + '_'))
         .map(k => omRaw.hourly[k])
         .filter(Array.isArray);
-    if (series.length === 0) return null;
+    const precipModels = pick('precipitation');
+    const snowModels   = pick('snowfall');
+    if (precipModels.length === 0 && snowModels.length === 0) return null;
+    const maxAt = (models, i) => {
+        let best = null;
+        for (const m of models) {
+            const v = m[i];
+            if (v != null && (best === null || v > best)) best = v;
+        }
+        return best;
+    };
     const now    = Date.now();
     const cutoff = now - 24 * 3600 * 1000;
-    let total = 0, found = false;
+    const precip = [];
+    const snow   = [];
     for (let i = 0; i < t.length; i++) {
         const ms = t[i] * 1000;
         if (ms <= cutoff || ms > now) continue;
-        let best = null;
-        for (const s of series) {
-            const v = s[i];
-            if (v != null && (best === null || v > best)) best = v;
-        }
-        if (best !== null) {
-            total += best;
-            found  = true;
-        }
+        const p = maxAt(precipModels, i);
+        const s = maxAt(snowModels, i);
+        if (p === null && s === null) continue;
+        precip.push(p ?? 0);
+        snow.push(s ?? 0);
     }
-    return found ? total : null;
+    return precip.length ? { precip, snow } : null;
 }
 
 function parseOpenMeteo(data, aqData, windUnit, pressureUnit, unit) {
@@ -1023,6 +1061,90 @@ function spacer() {
     return new St.Widget({x_expand: true});
 }
 
+// A bar sparkline of the trailing-24h hourly precipitation for the Current tab.
+// `series` is the raw per-hour liquid-equivalent array from precip24hSeries
+// (oldest→newest, same unit as the displayed total); bars are scaled to the
+// wettest hour, so a dry day reads as a flat baseline rather than empty space.
+// `height` is passed in by the caller so the sparkline tracks the panel-size
+// setting. `opts.snow` is the aligned per-hour snow-depth array — any hour with
+// snow > 0 is drawn in an icy tint instead of rain blue, so the type is visible
+// at a glance (heights stay liquid-equivalent either way, one comparable scale).
+// `opts.imperial`/`opts.light` set label precision and theme contrast. A top
+// band is reserved for per-hour value labels. Drawn with Cairo via
+// St.DrawingArea's repaint; the context must be disposed every paint.
+function precipSparkline(series, height, opts = {}) {
+    const { snow = null, imperial = false, light = false } = opts;
+    const area = new St.DrawingArea({
+        style_class: 'wp-precip-spark',
+        x_expand:    true,
+        height,
+    });
+    const max = series.reduce((m, v) => (v > m ? v : m), 0);
+    const fmtLabel = v => (imperial ? v.toFixed(2) : v.toFixed(1));
+    area.connect('repaint', () => {
+        const cr     = area.get_context();
+        const [w, h] = area.get_surface_size();
+        try {
+            if (!(w > 0) || series.length === 0) return;
+            const n    = series.length;
+            const slot = w / n;
+            const bw   = Math.max(1, slot - 1);   // 1px gap between hours
+            // Top band holds the value labels so bars never grow into the text;
+            // sized off the sparkline height, which already tracks panel size.
+            const fs     = Math.max(7, Math.round(h * 0.26));
+            const labelH = fs + 2;
+            const baseY  = h - 1;
+            const barMax = Math.max(1, h - 2 - labelH);  // tallest a bar can grow
+            // Faint baseline so an all-dry series still reads as "measured"
+            // (dark band on a light panel, light band on a dark one).
+            const base = light ? 0 : 1;
+            cr.setSourceRGBA(base, base, base, 0.12);
+            cr.rectangle(0, baseY, w, 1);
+            cr.fill();
+            if (max <= 0) return;
+            // Rain blue vs. an icy tint for snow hours; per-theme so both stay
+            // visible and distinct on the panel background. A 1.5px floor keeps a
+            // trace of precip visible next to a heavy hour.
+            const rainCol = light ? [0.18, 0.44, 0.82] : [0.42, 0.68, 1.0];
+            const snowCol = light ? [0.30, 0.66, 0.80] : [0.78, 0.90, 1.0];
+            for (let i = 0; i < n; i++) {
+                const v = series[i];
+                if (v <= 0) continue;
+                const isSnow = Array.isArray(snow) && snow[i] > 0;
+                const [r, g, b] = isSnow ? snowCol : rainCol;
+                cr.setSourceRGBA(r, g, b, 0.9);
+                const bh = Math.max(1.5, (v / max) * barMax);
+                cr.rectangle(i * slot, baseY - bh, bw, bh);
+                cr.fill();
+            }
+            // Per-hour value labels across the top band, placed greedily
+            // left→right and skipped when they'd collide with the previous one,
+            // so a few wet hours read cleanly while a wall-to-wall wet day thins
+            // out instead of turning to mush.
+            cr.selectFontFace('sans-serif', 0, 0);
+            cr.setFontSize(fs);
+            const fg = light ? [0.18, 0.20, 0.26] : [0.86, 0.88, 0.95];
+            cr.setSourceRGBA(fg[0], fg[1], fg[2], 0.95);
+            let lastRight = -Infinity;
+            for (let i = 0; i < n; i++) {
+                const v = series[i];
+                if (v <= 0) continue;
+                const txt = fmtLabel(v);
+                const tw  = cr.textExtents(txt).width;
+                let x = i * slot + bw / 2 - tw / 2;
+                x = Math.max(0, Math.min(x, w - tw));
+                if (x < lastRight + 2) continue;   // would overlap the last label
+                cr.moveTo(x, fs);
+                cr.showText(txt);
+                lastRight = x + tw;
+            }
+        } finally {
+            cr.$dispose();
+        }
+    });
+    return area;
+}
+
 // ── WeatherPanel ──────────────────────────────────────────────────────────
 
 class WeatherPanel {
@@ -1384,7 +1506,6 @@ class WeatherPanel {
             ['Dew point',   c.dewPoint],
             ['Visibility',  c.visibility],
             ['Cloud',       c.cloudCover],
-            ['Precip (24h, max nearby)', c.precip24h],
         ].filter(([, v]) => v != null);
 
         const grid = vbox('wp-detail-grid');
@@ -1403,6 +1524,43 @@ class WeatherPanel {
             grid.add_child(row);
         }
         box.add_child(grid);
+
+        // Last-24h precipitation gets its own full-width block below the grid so
+        // the hourly sparkline has room to breathe (a single grid cell is too
+        // narrow for 24 bars). Hidden when the side fetch gave nothing
+        // (precip24h null); a measured-but-dry day still shows ("0 in" with a
+        // flat baseline).
+        if (c.precip24h != null) {
+            const pBox  = vbox('wp-precip24h');
+            const pHead = hbox('wp-precip24h-head');
+            pHead.add_child(label('Precip (Past 24h, max nearby)', 'wp-detail-key'));
+            pHead.add_child(spacer());
+            pHead.add_child(label(c.precip24h, 'wp-detail-val'));
+            pBox.add_child(pHead);
+            // When some of that precip fell as snow, break out the snow depth on
+            // its own line: the precip total above is liquid-water equivalent, so
+            // a heavy snow shows as a small number there. Different unit (in/cm),
+            // and only shown when there was measurable snow (snow24h null otherwise).
+            if (c.snow24h) {
+                const sHead = hbox('wp-precip24h-head');
+                sHead.add_child(label('❄️ Snowfall (Past 24h)', 'wp-detail-key'));
+                sHead.add_child(spacer());
+                sHead.add_child(label(c.snow24h, 'wp-detail-val'));
+                pBox.add_child(sHead);
+            }
+            if (Array.isArray(c.precip24hSeries) && c.precip24hSeries.length) {
+                const sparkH = this.actor.has_style_class_name('wp-large')  ? 48
+                             : this.actor.has_style_class_name('wp-medium') ? 40
+                             : 32;
+                pBox.add_child(precipSparkline(c.precip24hSeries, sparkH, {
+                    snow:     c.snow24hSeries,
+                    imperial: c.precip24hImperial,
+                    light:    this.actor.has_style_class_name('wp-light'),
+                }));
+            }
+            box.add_child(pBox);
+        }
+
         this._content.add_child(box);
     }
 
@@ -1978,6 +2136,11 @@ class WeatherIndicator extends PanelMenu.Button {
             this._lat     = this._settings.get_double('location-latitude');
             this._lon     = this._settings.get_double('location-longitude');
             this._locName = this._settings.get_string('location-name') || 'Custom location';
+            // Forget the last reverse-geocoded coords so that re-enabling auto
+            // always re-geocodes. Otherwise a return to a previously-seen
+            // GeoClue spot would hit the throttle below and keep the manual
+            // city's name in _locName.
+            this._geoLat = this._geoLon = null;
             if (this._lat === 0 && this._lon === 0)
                 throw new Error('No location set. Open Preferences to configure.');
             return;
@@ -2049,6 +2212,19 @@ class WeatherIndicator extends PanelMenu.Button {
             // settings) moved us, even when cached weather is otherwise fresh.
             await this._resolveLocation();
             this._panel.setLocation(this._locName);
+
+            // Persist the resolved coords/name in auto mode so the Preferences
+            // window (which mirrors these keys live) always reflects the
+            // location the panel is actually showing. Done here — right after
+            // resolution, before any freshness gate — so a fresh-cache early
+            // return below can't leave Preferences pinned to the previous
+            // (e.g. manually searched) location. Our own 'changed' handler
+            // ignores these self-writes in auto mode, so no refetch loop.
+            if (this._settings.get_boolean('location-auto')) {
+                this._settings.set_double('location-latitude',  this._lat);
+                this._settings.set_double('location-longitude', this._lon);
+                this._settings.set_string('location-name',      this._locName);
+            }
 
             const locChanged = this._cachedLat != null &&
                 (this._lat !== this._cachedLat || this._lon !== this._cachedLon);
@@ -2154,11 +2330,21 @@ class WeatherIndicator extends PanelMenu.Button {
                     parsed = parseOpenMeteo(raw, aqData, windUnit, pressureUnit, unit);
                 }
 
-                // Last-24h precip total: a single keyless Open-Meteo source for
-                // both providers (neither main response carries it), summed and
-                // formatted here so neither parser needs to know about it. Stays
-                // null/absent if the side fetch failed — the cell just hides.
-                parsed.current.precip24h = fmtPrecipTotal(precip24hTotal(precipRaw), unit);
+                // Last-24h precip: a single keyless Open-Meteo source for both
+                // providers (neither main response carries it). The per-hour
+                // series feeds the Current tab's sparkline; its sum is the
+                // displayed total. Both stay null/absent if the side fetch failed
+                // — the block just hides. Summed/formatted here so neither parser
+                // needs to know about it.
+                const precipSeries = precip24hSeries(precipRaw);
+                const sumOf = arr => arr.reduce((a, b) => a + b, 0);
+                parsed.current.precip24hSeries  = precipSeries?.precip ?? null;
+                parsed.current.snow24hSeries    = precipSeries?.snow  ?? null;
+                parsed.current.precip24hImperial = unit === 'fahrenheit';
+                parsed.current.precip24h = fmtPrecipTotal(
+                    precipSeries ? sumOf(precipSeries.precip) : null, unit);
+                parsed.current.snow24h = fmtSnowTotal(
+                    precipSeries ? sumOf(precipSeries.snow) : null, unit);
 
                 // WeatherAI.io is a dedicated astronomy source; when present its
                 // values take precedence, falling back to whatever the weather
@@ -2189,12 +2375,6 @@ class WeatherIndicator extends PanelMenu.Button {
                 // Map tab keeps its tiles across a weather refresh; _ensureMap
                 // refreshes them on demand when they go stale.
                 parsed.map = this._cachedMap;
-
-                if (this._settings.get_boolean('location-auto')) {
-                    this._settings.set_double('location-latitude',  this._lat);
-                    this._settings.set_double('location-longitude', this._lon);
-                    this._settings.set_string('location-name',      this._locName);
-                }
 
                 this._cachedParsed = parsed;
                 this._lastFetch    = Date.now();

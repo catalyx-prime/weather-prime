@@ -88,7 +88,7 @@ _fetch(force)
         fetchJSON(buildAirQualityUrl()),       // PM2.5/PM10 backfill
         fetchAlerts(),                          // NWS, US only
         fetchWeatherAi('/astronomy', …),        // only if weatherai-key set; overlays moon detail
-        fetchJSON(buildOpenMeteoPrecip24hUrl()), // last-24h precip total, keyless, both providers
+        fetchJSON(buildOpenMeteoPrecip24hUrl()), // last-24h precip series+total, keyless, both providers
      ])
      then fetchJSON(buildOpenMeteoUrl()) OR fetchWeatherAPI()
      then parseOpenMeteo() / parseWeatherAPI()   // each emits astronomy (sun times always; moon from WeatherAPI)
@@ -103,8 +103,16 @@ Parsed data shape:
 {
   current:    { temp, feelsLike, humidity, wind, pressure, icon, desc,
                 windGust?, dewPoint?, visibility?, cloudCover?,
-                precip24h? },   // last-24h precip total, always from Open-Meteo (keyless);
-                                 // formatted "X in"/"X mm" (0 shown, null hides the cell)
+                precip24h?, precip24hSeries?,
+                precip24hImperial?, snow24h?, snow24hSeries? },
+                                 // last-24h precip, always from Open-Meteo (keyless). precip24h is the
+                                 // formatted liquid-equivalent total "X in"/"X mm" (0 shown, null hides the block);
+                                 // precip24hSeries is the raw per-hour max-across-models liquid-equiv array
+                                 // (oldest→newest, same unit) the Current tab draws as a sparkline.
+                                 // snow24h is the formatted snow-DEPTH total "X in"/"X cm" (null = no
+                                 // measurable snow / no line; note metric snow is cm while precip is mm),
+                                 // snow24hSeries the aligned per-hour snow-depth array (used to tint snow
+                                 // hours in the sparkline); precip24hImperial flags inch vs mm for bar labels
   hourly:     [{ time, temp, icon, precip, humidity, wind }, ...],   // next 12 hours
   daily:      [{ day,  hi,   lo, icon, precip, humidity, wind }, ...], // 7 days
   airquality: {
@@ -162,7 +170,7 @@ After editing the schema XML, always recompile: `glib-compile-schemas <path>/sch
 
 | API | Key needed | Used for |
 |-----|-----------|---------|
-| Open-Meteo (`api.open-meteo.com`) | No | Weather forecast (default provider); also backfills the 7-day dominant wind direction when the selected provider lacks it (WeatherAPI's daily forecast has no wind direction), and always supplies the Current tab's last-24h precipitation total (a dedicated `past_hours=24` request, since neither provider's main response carries a prior-day precip sum). This request asks for multiple models (`ecmwf_ifs025,icon_seamless,gfs_seamless`) and `precip24hTotal` takes the per-hour max across them, because the default `best_match` (GFS in the US) routinely reports 0 for convective rain that ECMWF/ICON captured |
+| Open-Meteo (`api.open-meteo.com`) | No | Weather forecast (default provider); also backfills the 7-day dominant wind direction when the selected provider lacks it (WeatherAPI's daily forecast has no wind direction), and always supplies the Current tab's last-24h precipitation (a dedicated `past_hours=24` request, since neither provider's main response carries a prior-day precip sum). This request asks for multiple models (`ecmwf_ifs025,icon_seamless,gfs_seamless`) and `precip24hSeries` takes the per-hour max across them (the displayed total is that series summed; the series itself is drawn as the Current tab's sparkline), because the default `best_match` (GFS in the US) routinely reports 0 for convective rain that ECMWF/ICON captured. The same call also pulls `snowfall` (max-across-models), so the Current tab can break out a snow-depth total and tint snow hours in the sparkline — `precipitation` is liquid-water equivalent and would otherwise hide that it was snow. Units differ: `precipitation_unit=inch` gives inches for both, but the metric default gives precipitation in mm and snowfall in cm |
 | Open-Meteo Air Quality (`air-quality-api.open-meteo.com`) | No | PM2.5/PM10 fallback (always fetched alongside weather) |
 | WeatherAPI.com | Yes | Alternative weather provider |
 | WeatherAI.io | Yes | Astronomy data only (sunrise/sunset, moon phase, illumination). Tab hidden without a key |
