@@ -30,6 +30,25 @@
     padding: 0;
 }
 
+/* When a weather alert is active, widen the panel ~15% so the extra Alerts
+   tab fits and the long NWS description wraps onto fewer lines. Toggled by the
+   wp-has-alerts class in setData(). The .wp-medium/.wp-large variants carry
+   three classes, so they outrank the two-class tier width rules below. */
+.wp-panel.wp-has-alerts {
+    min-width: 430px;
+    max-width: 430px;
+}
+
+.wp-panel.wp-medium.wp-has-alerts {
+    min-width: 538px;
+    max-width: 538px;
+}
+
+.wp-panel.wp-large.wp-has-alerts {
+    min-width: 645px;
+    max-width: 645px;
+}
+
 /* ── Header ─────────────────────────────────────────────────────────────── */
 
 .wp-header {
@@ -108,6 +127,66 @@
 .wp-alert-headline {
     font-size: 11px;
     color: rgba(255, 220, 100, 0.8);
+}
+
+.wp-alert-button {
+    border-radius: 6px;
+}
+
+.wp-alert-button:hover {
+    background-color: rgba(255, 200, 0, 0.12);
+}
+
+.wp-alert-more {
+    font-size: 10px;
+    color: rgba(255, 220, 100, 0.6);
+    padding-top: 2px;
+}
+
+/* ── Alerts tab (full text) ─────────────────────────────────────────────── */
+
+.wp-alerts {
+    spacing: 12px;
+    padding: 4px 2px;
+}
+
+.wp-alert-card {
+    spacing: 4px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 200, 0, 0.3);
+    background-color: rgba(255, 180, 0, 0.08);
+}
+
+.wp-alert-card-event {
+    font-size: 14px;
+    font-weight: bold;
+    color: #FFD740;
+}
+
+.wp-alert-card-meta {
+    font-size: 10px;
+    color: rgba(255, 220, 100, 0.7);
+}
+
+.wp-alert-card-headline {
+    font-size: 12px;
+    font-weight: bold;
+    color: rgba(255, 230, 150, 0.95);
+    padding-top: 2px;
+}
+
+.wp-alert-card-desc {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.85);
+    line-height: 1.35em;
+}
+
+.wp-alert-card-sender {
+    font-size: 10px;
+    font-style: italic;
+    color: rgba(255, 255, 255, 0.45);
+    padding-top: 4px;
 }
 
 /* ── Tab bar ────────────────────────────────────────────────────────────── */
@@ -502,6 +581,38 @@
     background-color: rgba(255, 180, 0, 0.12);
 }
 
+.wp-panel.wp-light .wp-alert-button:hover {
+    background-color: rgba(180, 100, 0, 0.12);
+}
+
+.wp-panel.wp-light .wp-alert-event,
+.wp-panel.wp-light .wp-alert-card-event {
+    color: #8a5a00;
+}
+
+.wp-panel.wp-light .wp-alert-headline,
+.wp-panel.wp-light .wp-alert-more,
+.wp-panel.wp-light .wp-alert-card-meta {
+    color: rgba(120, 75, 0, 0.85);
+}
+
+.wp-panel.wp-light .wp-alert-card {
+    border-color: rgba(180, 100, 0, 0.3);
+    background-color: rgba(255, 180, 0, 0.12);
+}
+
+.wp-panel.wp-light .wp-alert-card-headline {
+    color: rgba(90, 55, 0, 0.95);
+}
+
+.wp-panel.wp-light .wp-alert-card-desc {
+    color: rgba(0, 0, 0, 0.8);
+}
+
+.wp-panel.wp-light .wp-alert-card-sender {
+    color: rgba(0, 0, 0, 0.45);
+}
+
 .wp-panel.wp-light .wp-tab-bar {
     border-bottom-color: rgba(0, 0, 0, 0.08);
 }
@@ -689,6 +800,27 @@
 }
 
 .wp-panel.wp-medium .wp-alert-headline {
+    font-size: 14px;
+}
+
+.wp-panel.wp-medium .wp-alert-more {
+    font-size: 13px;
+}
+
+.wp-panel.wp-medium .wp-alert-card-event {
+    font-size: 17px;
+}
+
+.wp-panel.wp-medium .wp-alert-card-meta,
+.wp-panel.wp-medium .wp-alert-card-sender {
+    font-size: 13px;
+}
+
+.wp-panel.wp-medium .wp-alert-card-headline {
+    font-size: 15px;
+}
+
+.wp-panel.wp-medium .wp-alert-card-desc {
     font-size: 14px;
 }
 
@@ -1001,6 +1133,27 @@
 
 .wp-panel.wp-large .wp-alert-headline {
     font-size: 17px;
+}
+
+.wp-panel.wp-large .wp-alert-more {
+    font-size: 15px;
+}
+
+.wp-panel.wp-large .wp-alert-card-event {
+    font-size: 20px;
+}
+
+.wp-panel.wp-large .wp-alert-card-meta,
+.wp-panel.wp-large .wp-alert-card-sender {
+    font-size: 15px;
+}
+
+.wp-panel.wp-large .wp-alert-card-headline {
+    font-size: 18px;
+}
+
+.wp-panel.wp-large .wp-alert-card-desc {
+    font-size: 16px;
 }
 
 .wp-panel.wp-large .wp-tab-bar {

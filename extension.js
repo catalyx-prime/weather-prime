@@ -885,10 +885,15 @@ async function fetchAlerts(lat, lon) {
             `https://api.weather.gov/alerts/active?point=${lat},${lon}`
         );
         return (data.features ?? []).map(f => ({
-            event:    f.properties.event    ?? 'Alert',
-            headline: f.properties.headline ?? '',
-            desc:     f.properties.description ?? '',
-            severity: f.properties.severity ?? 'Unknown',
+            event:       f.properties.event       ?? 'Alert',
+            headline:    f.properties.headline    ?? '',
+            desc:        f.properties.description  ?? '',
+            instruction: f.properties.instruction ?? '',  // "Precautionary/Preparedness Actions"
+            areaDesc:    f.properties.areaDesc     ?? '',
+            sender:      f.properties.senderName   ?? '',
+            severity:    f.properties.severity     ?? 'Unknown',
+            urgency:     f.properties.urgency      ?? '',
+            expires:     f.properties.expires      ?? '',  // ISO timestamp
         }));
     } catch {
         return [];
@@ -934,6 +939,10 @@ class WeatherPanel {
     constructor() {
         this._data       = null;
         this._tab        = 'current';
+        // Index into _data.alerts to show alone on the Alerts tab, or null for
+        // all. Set when an alert in the banner is clicked; cleared by any tab
+        // button (incl. the Alerts tab itself) and on panel close.
+        this._alertFilter = null;
         this._refreshCb  = null;
         this._settingsCb = null;
 
@@ -988,6 +997,7 @@ class WeatherPanel {
         this._tabBtns      = {};
         this._tabSignalIds = {};
         [
+            ['alerts',     '⚠'],
             ['current',    'Now'],
             ['hourly',     'Hourly'],
             ['daily',      '7-Day'],
@@ -1007,6 +1017,7 @@ class WeatherPanel {
             tabBar.add_child(btn);
         });
         this._tabBtns.astronomy.hide();
+        this._tabBtns.alerts.hide();   // shown only when alerts are active
         // The Map tab stays visible; radar tiles load lazily on first view.
         this.actor.add_child(tabBar);
 
@@ -1023,7 +1034,11 @@ class WeatherPanel {
         this._selectTab('current');
     }
 
-    _selectTab(id) {
+    _selectTab(id, alertFilter = null) {
+        // Default null clears the filter, so a direct Alerts-tab click — even
+        // while it is already active — reverts to showing all alerts. Only the
+        // banner passes a specific index.
+        this._alertFilter = alertFilter;
         this._tab = id;
         Object.entries(this._tabBtns).forEach(([tid, btn]) => {
             if (tid === id) btn.add_style_class_name('active');
@@ -1090,6 +1105,11 @@ class WeatherPanel {
     // tab sizes its tiles in JS from the active size class rather than via CSS.
     relayout() { this._render(); }
 
+    // Called when the menu closes so the next open shows all alerts rather than
+    // a stale single-alert filter. No re-render needed — the panel is hidden and
+    // the next open's setData() re-renders.
+    resetAlertFilter() { this._alertFilter = null; }
+
     setLocation(name) { this._locationLbl.set_text(name || 'Unknown'); }
 
     setLoading() {
@@ -1112,7 +1132,18 @@ class WeatherPanel {
         // changed → _fetch → setData with render=true), so skipping the full
         // destroy_all_children/rebuild here avoids wasted work nobody can see.
         if (!render) return;
-        this._renderAlertsBanner(data.alerts ?? []);
+        const alerts = data.alerts ?? [];
+        this._renderAlertsBanner(alerts);
+        if (alerts.length) {
+            this._tabBtns.alerts?.show();
+            // Widen the panel (see .wp-has-alerts rules) so the extra tab fits
+            // and the long NWS description text wraps onto fewer lines.
+            this.actor.add_style_class_name('wp-has-alerts');
+        } else {
+            this._tabBtns.alerts?.hide();
+            this.actor.remove_style_class_name('wp-has-alerts');
+            if (this._tab === 'alerts') this._selectTab('current');
+        }
         const a = data.astronomy;
         const hasAstro = !!a && (a.sunrise || a.sunset || a.moonrise || a.moonset ||
                                  a.moonPhase || a.moonIllumination != null ||
@@ -1140,7 +1171,7 @@ class WeatherPanel {
         this._alertsBanner.destroy_all_children();
         if (!alerts.length) { this._alertsBanner.hide(); return; }
         this._alertsBanner.show();
-        alerts.forEach(a => {
+        alerts.forEach((a, idx) => {
             const item = vbox('wp-alert-item');
             const titleRow = hbox('wp-alert-title-row');
             titleRow.add_child(label('⚠', 'wp-alert-badge'));
@@ -1153,7 +1184,19 @@ class WeatherPanel {
                 hlLbl.clutter_text.line_wrap = true;
                 item.add_child(hlLbl);
             }
-            this._alertsBanner.add_child(item);
+            item.add_child(label('Read full text →', 'wp-alert-more'));
+            // Wrap each item in a button so clicking it opens the Alerts tab,
+            // where the full description and instructions are shown.
+            const btn = new St.Button({
+                child:       item,
+                style_class: 'wp-alert-button',
+                reactive:    true,
+                can_focus:   true,
+                x_expand:    true,
+            });
+            const sid = btn.connect('clicked', () => this._selectTab('alerts', idx));
+            btn.connect('destroy', () => btn.disconnect(sid));
+            this._alertsBanner.add_child(btn);
         });
     }
 
@@ -1162,6 +1205,7 @@ class WeatherPanel {
         this._content.destroy_all_children();
         if (!this._data) return;
         switch (this._tab) {
+        case 'alerts':     this._renderAlerts();     break;
         case 'current':    this._renderCurrent();    break;
         case 'hourly':     this._renderHourly();     break;
         case 'daily':      this._renderDaily();      break;
@@ -1169,6 +1213,57 @@ class WeatherPanel {
         case 'astronomy':  this._renderAstronomy();  break;
         case 'map':        this._renderMap();        break;
         }
+    }
+
+    _renderAlerts() {
+        const all = this._data.alerts ?? [];
+        // A banner click filters to a single alert; a direct tab click clears
+        // the filter. Guard the index against a data refresh that shrank the list.
+        const filtered = this._alertFilter != null && this._alertFilter < all.length;
+        const alerts = filtered ? [all[this._alertFilter]] : all;
+        const box = vbox('wp-alerts');
+
+        // NWS descriptions are multi-paragraph; preserve their embedded
+        // newlines and wrap long lines rather than ellipsizing.
+        const wrapLabel = (text, cls) => {
+            const l = label(text, cls);
+            l.clutter_text.line_wrap      = true;
+            l.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
+            l.clutter_text.ellipsize      = Pango.EllipsizeMode.NONE;
+            return l;
+        };
+
+        alerts.forEach(a => {
+            const card = vbox('wp-alert-card');
+            card.add_child(wrapLabel(`⚠ ${a.event}`, 'wp-alert-card-event'));
+
+            const meta = [];
+            if (a.severity && a.severity !== 'Unknown') meta.push(a.severity);
+            if (a.urgency  && a.urgency  !== 'Unknown') meta.push(a.urgency);
+            if (a.areaDesc)                             meta.push(a.areaDesc);
+            if (meta.length)
+                card.add_child(wrapLabel(meta.join(' • '), 'wp-alert-card-meta'));
+            if (a.expires) {
+                const exp = new Date(a.expires);
+                if (!isNaN(exp))
+                    card.add_child(wrapLabel(`Expires ${exp.toLocaleString()}`, 'wp-alert-card-meta'));
+            }
+
+            if (a.headline)
+                card.add_child(wrapLabel(a.headline, 'wp-alert-card-headline'));
+            if (a.desc)
+                card.add_child(wrapLabel(a.desc, 'wp-alert-card-desc'));
+            if (a.instruction) {
+                card.add_child(label('Precautionary / Preparedness Actions', 'wp-section-title'));
+                card.add_child(wrapLabel(a.instruction, 'wp-alert-card-desc'));
+            }
+            if (a.sender)
+                card.add_child(wrapLabel(a.sender, 'wp-alert-card-sender'));
+
+            box.add_child(card);
+        });
+
+        this._content.add_child(box);
     }
 
     _renderCurrent() {
@@ -1689,7 +1784,7 @@ class WeatherIndicator extends PanelMenu.Button {
 
         this._menuSignalId = this.menu.connect('open-state-changed', (_m, open) => {
             if (open) { this._fetch(false); this._ensureMap(); this._panel.resumeMap(); }
-            else      { this._panel.pauseMap(); }
+            else      { this._panel.pauseMap(); this._panel.resetAlertFilter(); }
         });
 
         this._settingsId = this._settings.connect('changed', (_s, key) => {
