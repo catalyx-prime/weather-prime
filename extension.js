@@ -201,6 +201,23 @@ function fmtVisibility(meters, unit) {
     return `${km >= 10 ? Math.round(km) : km.toFixed(1)} km`;
 }
 
+// Format a last-24h precipitation total. The unit tracks the temperature unit
+// (inches when imperial, else millimetres) and matches the precipitation_unit
+// the source request asked for, so no conversion happens here. Returns null for
+// missing data so _renderCurrent omits the cell; 0 is shown ("0 in" = measured
+// and dry, distinct from "we don't know").
+function fmtPrecipTotal(total, unit) {
+    if (total == null) return null;
+    if (unit === 'fahrenheit') {
+        if (total === 0)  return '0 in';
+        if (total < 0.01) return '<0.01 in';
+        return `${total.toFixed(2)} in`;
+    }
+    if (total === 0)  return '0 mm';
+    if (total < 0.1)  return '<0.1 mm';
+    return `${total.toFixed(1)} mm`;
+}
+
 // Compare pressure now vs 3 hours ago; threshold 2 hPa = meaningful change
 function pressureTrend(pressureArray, currentIdx) {
     if (!pressureArray || currentIdx < 3) return '';
@@ -338,6 +355,39 @@ function buildOpenMeteoDailyWindUrl(lat, lon) {
     return `https://api.open-meteo.com/v1/forecast?${params}`;
 }
 
+// Minimal Open-Meteo request for the trailing 24h of hourly precipitation (24
+// past hours + the current hour). Sources the Current tab's "Precip (24h, max nearby)"
+// total for every provider: neither Open-Meteo's main forecast nor WeatherAPI's
+// free forecast surfaces a prior-day precip sum, so this keyless call is the
+// fallback for that one data point regardless of api-provider. Kept separate
+// from the main request because past_hours there balloons the hourly array and
+// past_days pollutes the 7-day forecast (see the parallel fetch in _fetch).
+// precipitation_unit tracks the temperature unit so the sum needs no conversion.
+function buildOpenMeteoPrecip24hUrl(lat, lon, unit) {
+    const params = new URLSearchParams({
+        latitude:           lat,
+        longitude:          lon,
+        hourly:             'precipitation',
+        timezone:           'auto',
+        past_hours:         24,
+        forecast_hours:     1,
+        precipitation_unit: unit === 'fahrenheit' ? 'inch' : 'mm',
+        // Query several models and let precip24hTotal take the per-hour max.
+        // Open-Meteo's default best_match (GFS in the US) routinely zeroes out
+        // convective rain that ECMWF/ICON captured — it will even report a 96%
+        // precip *probability* alongside 0 *amount* — so a single model silently
+        // under-reports real rainfall. Max-across-models means any model that
+        // saw the storm still counts. Each model arrives as its own
+        // `precipitation_<model>` array on the shared time axis.
+        models:             'ecmwf_ifs025,icon_seamless,gfs_seamless',
+        // UTC epochs, not local ISO strings: precip24hTotal compares against
+        // the device clock, so an unanchored local timestamp would skew the
+        // 24h window for a manually-set location in another timezone.
+        timeformat:         'unixtime',
+    });
+    return `https://api.open-meteo.com/v1/forecast?${params}`;
+}
+
 // Builds a { 'YYYY-MM-DD': degrees } map from an Open-Meteo daily-wind
 // response so callers can look up a direction by date string. Returns null
 // when the response is missing or malformed.
@@ -347,6 +397,46 @@ function dailyWindDirMap(omWindRaw) {
     const map = {};
     d.time.forEach((t, i) => { map[t] = d.wind_direction_10m_dominant?.[i] ?? null; });
     return map;
+}
+
+// Sum the hourly precipitation from a buildOpenMeteoPrecip24hUrl response over
+// the trailing 24h ending now. The request asks for several models, each of
+// which arrives as its own `precipitation_<model>` array on the shared time
+// axis; we take the max across models for each hour, then sum, so a storm that
+// only some models captured isn't lost (best_match/GFS routinely zeroes out
+// convective rain — see buildOpenMeteoPrecip24hUrl). Falls back to a bare
+// `precipitation` key for any single-model response.
+//
+// Times are unixtime (UTC epoch seconds); Open-Meteo stamps each hourly bucket
+// with its start, so a value at time T covers T..T+1h and we count buckets whose
+// start is within the last 24h. Returns null when the data is missing (so the
+// Current tab hides the cell) but 0 when it's genuinely dry. Unit is whatever the
+// request asked for — inches or mm — and is formatted by fmtPrecipTotal.
+function precip24hTotal(omRaw) {
+    const t = omRaw?.hourly?.time;
+    if (!Array.isArray(t)) return null;
+    const series = Object.keys(omRaw.hourly)
+        .filter(k => k === 'precipitation' || k.startsWith('precipitation_'))
+        .map(k => omRaw.hourly[k])
+        .filter(Array.isArray);
+    if (series.length === 0) return null;
+    const now    = Date.now();
+    const cutoff = now - 24 * 3600 * 1000;
+    let total = 0, found = false;
+    for (let i = 0; i < t.length; i++) {
+        const ms = t[i] * 1000;
+        if (ms <= cutoff || ms > now) continue;
+        let best = null;
+        for (const s of series) {
+            const v = s[i];
+            if (v != null && (best === null || v > best)) best = v;
+        }
+        if (best !== null) {
+            total += best;
+            found  = true;
+        }
+    }
+    return found ? total : null;
 }
 
 function parseOpenMeteo(data, aqData, windUnit, pressureUnit, unit) {
@@ -1294,6 +1384,7 @@ class WeatherPanel {
             ['Dew point',   c.dewPoint],
             ['Visibility',  c.visibility],
             ['Cloud',       c.cloudCover],
+            ['Precip (24h, max nearby)', c.precip24h],
         ].filter(([, v]) => v != null);
 
         const grid = vbox('wp-detail-grid');
@@ -2032,7 +2123,7 @@ class WeatherIndicator extends PanelMenu.Button {
             } else {
                 const waiKey = this._settings.get_string('weatherai-key').trim();
 
-                const [aqData, alerts, waiAstroRaw] = await Promise.all([
+                const [aqData, alerts, waiAstroRaw, precipRaw] = await Promise.all([
                     fetchJSON(buildAirQualityUrl(this._lat, this._lon)).catch(() => null),
                     fetchAlerts(this._lat, this._lon),
                     waiKey
@@ -2041,6 +2132,9 @@ class WeatherIndicator extends PanelMenu.Button {
                             return null;
                         })
                         : Promise.resolve(null),
+                    // Last-24h precip total for the Current tab. Always keyless
+                    // Open-Meteo regardless of api-provider — see buildOpenMeteoPrecip24hUrl.
+                    fetchJSON(buildOpenMeteoPrecip24hUrl(this._lat, this._lon, unit)).catch(() => null),
                 ]);
 
                 if (provider === 'weatherapi') {
@@ -2059,6 +2153,12 @@ class WeatherIndicator extends PanelMenu.Button {
                     const raw = await fetchJSON(buildOpenMeteoUrl(this._lat, this._lon, unit));
                     parsed = parseOpenMeteo(raw, aqData, windUnit, pressureUnit, unit);
                 }
+
+                // Last-24h precip total: a single keyless Open-Meteo source for
+                // both providers (neither main response carries it), summed and
+                // formatted here so neither parser needs to know about it. Stays
+                // null/absent if the side fetch failed — the cell just hides.
+                parsed.current.precip24h = fmtPrecipTotal(precip24hTotal(precipRaw), unit);
 
                 // WeatherAI.io is a dedicated astronomy source; when present its
                 // values take precedence, falling back to whatever the weather
