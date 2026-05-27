@@ -68,7 +68,8 @@ WeatherPrimeExtension          ← ES module default export; enable()/disable() 
   - `_cachedParsed`/`_lastFetch` — weather payload (`fetch-interval`)
   - `_cachedAq`/`_lastAqFetch` — air quality (`aq-fetch-interval`)
   - `_cachedMap`/`_lastMapFetch` — RainViewer radar tiles (`map-fetch-interval`, 10 min floor)
-- `_cachedLat`/`_cachedLon` — last resolved coords; if these change between `_fetch()` runs, **all three caches are invalidated** so a GeoClue move doesn't serve stale data for the old location.
+- `_cachedUsno`/`_lastUsnoDay` — USNO astronomy on its own **once-per-calendar-day** cadence (not a TTL, not configurable; gated by `usnoDayKey()`). A manual refresh (`force`) bypasses the day gate; the `_busy` guard still blocks overlapping fetches. A failed fetch leaves the cache untouched so the next `_fetch` retries instead of waiting out the day.
+- `_cachedLat`/`_cachedLon` — last resolved coords; if these change between `_fetch()` runs, **all caches (including USNO, since solar noon is location-specific) are invalidated** so a GeoClue move doesn't serve stale data for the old location.
 - A `GLib.timeout_add_seconds` periodic refresh timer whose period is `min(weather, aq, map)`
 - GSettings `changed` signal to invalidate cache and re-fetch on any preference change
 
@@ -82,15 +83,17 @@ _fetch(force)
   → if location moved since last fetch, drop all caches
   → if not fresh: fetch air quality (AirNow → OpenWeatherMap → Open-Meteo, per aq-source)
   → if not fresh: fetch RainViewer radar frames (past + nowcast) over an Esri World Imagery base; the Map tab loops them
+  → if USNO stale (new calendar day, or force): kick off fetchUsnoAstronomy() in parallel  // keyless; own daily cadence, not the weather TTL
   → if weather not fresh: Promise.all([
         fetchJSON(buildAirQualityUrl()),       // PM2.5/PM10 backfill
         fetchAlerts(),                          // NWS, US only
         fetchWeatherAi('/astronomy', …),        // only if weatherai-key set; overlays moon detail
-        fetchUsnoAstronomy()                    // keyless; adds solar noon + next new/full moon dates
      ])
      then fetchJSON(buildOpenMeteoUrl()) OR fetchWeatherAPI()
      then parseOpenMeteo() / parseWeatherAPI()   // each emits astronomy (sun times always; moon from WeatherAPI)
-     then merge WeatherAI overlay, then merge USNO (additive: solarNoon, nextNewMoon, nextFullMoon)
+     then merge WeatherAI overlay
+  → await the USNO fetch and merge it (additive: solarNoon, nextNewMoon, nextFullMoon) into
+     parsed.astronomy — runs on both the fresh and rebuilt paths, since USNO has its own schedule
   → WeatherPanel.setData({ current, hourly, daily, airquality, astronomy?, map?, alerts })
 ```
 
@@ -162,7 +165,7 @@ After editing the schema XML, always recompile: `glib-compile-schemas <path>/sch
 | WeatherAI.io | Yes | Astronomy data only (sunrise/sunset, moon phase, illumination). Tab hidden without a key |
 | AirNow (`airnowapi.org`) | Yes (free) | US full AQI by pollutant; requires a station within ~25 mi |
 | OpenWeatherMap (`api.openweathermap.org/data/2.5/air_pollution`) | Yes (free) | Global air pollution; coarse 1–5 AQI but always returns all 8 pollutants |
-| USNO (`aa.usno.navy.mil/api`) | No | Solar noon (sun upper transit) + dates of the next new & full moon for the Astronomy tab; keyless, piggybacks on weather-fetch TTL, degrades silently |
+| USNO (`aa.usno.navy.mil/api`) | No | Solar noon (sun upper transit) + dates of the next new & full moon for the Astronomy tab; keyless, refreshed at most once per calendar day (own schedule, not the weather TTL; manual refresh bypasses the day gate), degrades silently |
 | RainViewer (`api.rainviewer.com`) | No | Precipitation radar tiles for the Map tab; 10-minute publish cadence |
 | Esri World Imagery | No | Satellite base layer under the radar tiles on the Map tab |
 | NWS (`api.weather.gov`) | No | US weather alerts |

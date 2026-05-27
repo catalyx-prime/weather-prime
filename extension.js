@@ -552,8 +552,10 @@ function parseWeatherAiAstronomy(data) {
 // ── USNO (US Naval Observatory, keyless) ──────────────────────────────────
 // Free, no key, authoritative. Adds solar noon (the sun's upper transit) plus
 // the dates of the next new and full moons — detail no weather provider gives.
-// Data changes slowly, so this piggybacks on the weather fetch TTL. Each call
-// degrades to null independently; the Astronomy tab simply omits missing rows.
+// These shift by at most a minute or two a day, so USNO rides its own
+// once-per-calendar-day schedule (see usnoDayKey) rather than the weather TTL;
+// _fetch refreshes it on the first run of a new local day. Each call degrades
+// to null independently; the Astronomy tab simply omits missing rows.
 
 const USNO_BASE = 'https://aa.usno.navy.mil/api';
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -601,6 +603,12 @@ function parseUsno(oneday, phases) {
         out.nextFullMoon = usnoPhaseDate(pd.find(p => p.phase === 'Full Moon'));
     }
     return out;
+}
+
+// Local calendar-day key; USNO is refetched only when this changes day to day.
+function usnoDayKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
 // ── AirNow (US EPA, free with registration) ───────────────────────────────
@@ -1635,6 +1643,8 @@ class WeatherIndicator extends PanelMenu.Button {
         this._lastAqFetch  = 0;
         this._cachedMap    = null;
         this._lastMapFetch = 0;
+        this._cachedUsno   = null;   // USNO astronomy, refreshed at most once per calendar day
+        this._lastUsnoDay  = null;   // usnoDayKey() of the last successful USNO fetch
         this._cachedLat    = null;
         this._cachedLon    = null;
 
@@ -1853,6 +1863,8 @@ class WeatherIndicator extends PanelMenu.Button {
                 this._lastAqFetch  = 0;
                 this._cachedMap    = null;
                 this._lastMapFetch = 0;
+                this._cachedUsno   = null;   // solar noon is location-specific
+                this._lastUsnoDay  = null;
             }
 
             const now          = Date.now();
@@ -1860,15 +1872,27 @@ class WeatherIndicator extends PanelMenu.Button {
             const aqMs         = Math.max(5, this._settings.get_int('aq-fetch-interval')) * 60 * 1000;
             const weatherFresh = !force && this._cachedParsed && (now - this._lastFetch) < weatherMs;
             const aqFresh      = !force && this._cachedAq && (now - this._lastAqFetch) < aqMs;
+            // USNO has its own once-per-calendar-day cadence, independent of the
+            // weather/AQ TTLs. A manual refresh (force) bypasses the day gate;
+            // the _busy guard at the top of _fetch still keeps button-spam from
+            // launching overlapping fetches.
+            const todayKey     = usnoDayKey();
+            const usnoStale    = force || !this._cachedUsno || this._lastUsnoDay !== todayKey;
 
             // Radar is fetched lazily by _ensureMap when the Map tab is viewed,
             // so it doesn't participate in this background freshness gate.
-            if (weatherFresh && aqFresh) {
+            if (weatherFresh && aqFresh && !usnoStale) {
                 this._panel.setData(this._cachedParsed, this.menu.isOpen);
                 return;
             }
 
             if (!weatherFresh) this._panel.setLoading();
+
+            // Kicked off here so it runs in parallel with the weather/AQ work
+            // below; awaited just before the astronomy merge.
+            const usnoPromise = usnoStale
+                ? fetchUsnoAstronomy(this._lat, this._lon).catch(() => null)
+                : null;
 
             const provider     = this._settings.get_string('api-provider');
             const unit         = this._settings.get_string('temperature-unit');
@@ -1903,7 +1927,7 @@ class WeatherIndicator extends PanelMenu.Button {
             } else {
                 const waiKey = this._settings.get_string('weatherai-key').trim();
 
-                const [aqData, alerts, waiAstroRaw, usnoRaw] = await Promise.all([
+                const [aqData, alerts, waiAstroRaw] = await Promise.all([
                     fetchJSON(buildAirQualityUrl(this._lat, this._lon)).catch(() => null),
                     fetchAlerts(this._lat, this._lon),
                     waiKey
@@ -1912,7 +1936,6 @@ class WeatherIndicator extends PanelMenu.Button {
                             return null;
                         })
                         : Promise.resolve(null),
-                    fetchUsnoAstronomy(this._lat, this._lon),
                 ]);
 
                 if (provider === 'weatherapi') {
@@ -1952,23 +1975,6 @@ class WeatherIndicator extends PanelMenu.Button {
                     }
                 }
 
-                // USNO adds solar noon and next new/full-moon dates on top of
-                // whatever the providers above supplied (purely additive).
-                if (usnoRaw) {
-                    try {
-                        const u    = parseUsno(usnoRaw[0], usnoRaw[1]);
-                        const base = parsed.astronomy ?? {};
-                        parsed.astronomy = {
-                            ...base,
-                            solarNoon:    u.solarNoon,
-                            nextNewMoon:  u.nextNewMoon,
-                            nextFullMoon: u.nextFullMoon,
-                        };
-                    } catch (e) {
-                        logError('[WeatherPrime] USNO astronomy parse error:', e.message);
-                    }
-                }
-
                 parsed.alerts = alerts;
                 parsed.airquality.airnow      = aqResult.airnow;
                 parsed.airquality.openweather = aqResult.openweather;
@@ -1987,6 +1993,27 @@ class WeatherIndicator extends PanelMenu.Button {
 
                 this._cachedParsed = parsed;
                 this._lastFetch    = Date.now();
+            }
+
+            // USNO refreshes on its own daily cadence, so resolve it here and
+            // merge into the astronomy block regardless of which path produced
+            // `parsed`. It's purely additive (solar noon + next moon dates) on
+            // top of whatever the providers/WeatherAI supplied. A failed fetch
+            // leaves the cached value (and its day key) untouched so the next
+            // _fetch retries rather than waiting out the day.
+            if (usnoPromise) {
+                const raw = await usnoPromise;
+                if (raw && (raw[0] || raw[1])) {
+                    try {
+                        this._cachedUsno  = parseUsno(raw[0], raw[1]);
+                        this._lastUsnoDay = todayKey;
+                    } catch (e) {
+                        logError('[WeatherPrime] USNO astronomy parse error:', e.message);
+                    }
+                }
+            }
+            if (this._cachedUsno) {
+                parsed.astronomy = { ...(parsed.astronomy ?? {}), ...this._cachedUsno };
             }
 
             this._cachedLat = this._lat;
