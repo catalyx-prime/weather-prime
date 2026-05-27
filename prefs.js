@@ -19,6 +19,9 @@ if (typeof URLSearchParams === 'undefined') {
     };
 }
 
+// Reusable across decode() calls — no need to allocate one per response.
+const _decoder = new TextDecoder();
+
 function geocodeSearch(query) {
     return new Promise((resolve, reject) => {
         const session = new Soup.Session({user_agent: 'WeatherPrime/1.0'});
@@ -28,7 +31,7 @@ function geocodeSearch(query) {
         session.send_and_read_async(msg, GLib.PRIORITY_DEFAULT, null, (sess, res) => {
             try {
                 const bytes = sess.send_and_read_finish(res);
-                const data  = JSON.parse(new TextDecoder().decode(bytes.get_data()));
+                const data  = JSON.parse(_decoder.decode(bytes.get_data()));
                 resolve(data.results ?? []);
             } catch (e) {
                 reject(e);

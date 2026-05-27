@@ -252,6 +252,10 @@ function formatTime(iso) {
 
 // ── HTTP helper ───────────────────────────────────────────────────────────
 
+// TextDecoder is reusable and stateless across decode() calls; share one
+// rather than allocating per response.
+const _decoder = new TextDecoder();
+
 let _session = null;
 function getSession() {
     if (!_session)
@@ -279,7 +283,7 @@ function fetchJSON(url, headers = null) {
                 const status = msg.get_status();
                 if (status !== Soup.Status.OK)
                     throw new Error(`HTTP ${status}`);
-                resolve(JSON.parse(new TextDecoder().decode(bytes.get_data())));
+                resolve(JSON.parse(_decoder.decode(bytes.get_data())));
             } catch (e) {
                 reject(e);
             }
@@ -1704,14 +1708,20 @@ class WeatherIndicator extends PanelMenu.Button {
                 this._panel.setMapWebsite(this._settings.get_string('map-website'));
                 return;
             }
-            if (key === 'color-scheme' || key === 'panel-position' || key === 'panel-size') {
+            // panel-position is owned by the extension-level handler, which
+            // reparents the indicator's container between panel boxes. It needs
+            // no restyle or refetch here — the data and theme are unaffected.
+            if (key === 'panel-position') return;
+
+            if (key === 'color-scheme' || key === 'panel-size') {
                 this._updateTheme();
                 if (key === 'panel-size') this._panel.relayout();
                 return;
             }
 
             // Everything else affects the fetched data: drop caches and refetch.
-            _session = null;
+            // The Soup.Session is intentionally kept — its config is static, so
+            // reusing it preserves keep-alive connections across the refetch.
             this._cachedParsed = null;
             this._lastFetch    = 0;
             this._cachedAq     = null;
@@ -2099,24 +2109,33 @@ class WeatherIndicator extends PanelMenu.Button {
 export default class WeatherPrimeExtension extends Extension {
     enable() {
         this._settings = this.getSettings();
-        this._addIndicator();
+        // Create and register the indicator once: addToStatusArea claims the
+        // role and wires the menu into the panel's menu manager. A position
+        // change afterwards only reparents the container (see _reposition), so
+        // the indicator and all its state — caches, in-flight fetches, the
+        // cached GeoClue client — survive a left/center/right move intact.
+        this._indicator = new WeatherIndicator(this);
+        Main.panel.addToStatusArea(this.uuid, this._indicator);
+        this._reposition();
         this._posChangedId = this._settings.connect('changed::panel-position',
-            () => this._addIndicator());
+            () => this._reposition());
     }
 
-    _addIndicator() {
-        if (this._indicator) {
-            this._indicator.destroy();
-            this._indicator = null;
-        }
-        this._indicator = new WeatherIndicator(this);
+    // Move the (already-registered) indicator's container into the box for the
+    // current panel-position setting, without destroying the indicator.
+    _reposition() {
+        const container = this._indicator?.container;
+        if (!container) return;
         const pos = this._settings.get_string('panel-position');
-        if (pos === 'left')
-            Main.panel.addToStatusArea(this.uuid, this._indicator, 99, 'left');
-        else if (pos === 'center')
-            Main.panel.addToStatusArea(this.uuid, this._indicator, 0, 'center');
-        else
-            Main.panel.addToStatusArea(this.uuid, this._indicator);
+        const box = pos === 'left'   ? Main.panel._leftBox
+                  : pos === 'center' ? Main.panel._centerBox
+                  :                    Main.panel._rightBox;
+        // 'left' sits at the far (inner) end of the left box, after Activities;
+        // center/right sit at the leading edge of their box.
+        const parent = container.get_parent();
+        if (parent) parent.remove_child(container);
+        const index = pos === 'left' ? box.get_n_children() : 0;
+        box.insert_child_at_index(container, index);
     }
 
     disable() {
