@@ -13,7 +13,7 @@ Weather Prime is a GNOME Shell extension (GNOME 50+) written in GJS (GNOME JavaS
 mkdir -p ~/.local/share/gnome-shell/extensions/weather-prime@weather-prime
 cp extension.js stylesheet.css prefs.js \
    ~/.local/share/gnome-shell/extensions/weather-prime@weather-prime/
-cp -r schemas ~/.local/share/gnome-shell/extensions/weather-prime@weather-prime/
+cp -r schemas icons ~/.local/share/gnome-shell/extensions/weather-prime@weather-prime/
 
 # Compile GSettings schema (required after any schema changes)
 glib-compile-schemas ~/.local/share/gnome-shell/extensions/weather-prime@weather-prime/schemas/
@@ -46,6 +46,7 @@ journalctl -f -o cat /usr/bin/gnome-shell 2>&1 | grep -i weather
 | `prefs.js` | Preferences window (runs in a separate process from the shell) |
 | `stylesheet.css` | All CSS for the drop-down panel; dark mode is default, light mode via `.wp-light` class |
 | `schemas/org.gnome.shell.extensions.weather-prime.gschema.xml` | GSettings schema — must be recompiled after changes |
+| `icons/` | Bundled [Meteocons](https://github.com/basmilius/weather-icons) static-fill weather SVGs (one per condition, day/night variants), rendered as colour `St.Icon`s. `icons/LICENSE.meteocons` is the MIT license that must ship with them (attribution requirement) |
 
 ### Class Structure (`extension.js`)
 
@@ -136,6 +137,7 @@ Parsed data shape:
 - **GJS imports** use `gi://` URIs (`gi://GObject`, `gi://St`, `gi://Soup`, etc.). GNOME Shell internal APIs use `resource:///org/gnome/shell/…`.
 - **`URLSearchParams` polyfill** — GJS does not have this web API, so both `extension.js` and `prefs.js` define a minimal shim at the top of the file.
 - **Signal management** — Every `connect()` call returns a signal ID that must be stored and passed to `disconnect()` in `destroy()`. Leaking signals causes memory leaks and can crash the shell.
+- **Weather icons** — Sky-condition glyphs are Meteocons static-fill SVGs bundled in `icons/`, **not emoji**. `WMO[code]`/`wApiIcon()` emit a Meteocons *slug* (a file basename); `weatherIcon(slug, cssClass)` builds a colour `St.Icon` via `Gio.FileIcon`, and `iconGicon(slug)` swaps the top-bar pill icon in place (`set_gicon`). Size is driven by the CSS **`icon-size`** property (with `wp-medium`/`wp-large` overrides), not `font-size`. `ICON_DIR` is set once in `enable()` from the install path. Meteocons ships day/night art for sky-dominant codes (clear, clouds, fog, showers), so `WMO` entries carry `{day, night}` for those and there is no separate night-override table. Unknown codes fall back to `not-available`. Decorative inline emoji elsewhere (💧 hourly precip, ❄️ snowfall label, ⚠️ error/alert) are not weather icons and are untouched.
 - **CSS class prefix** — All stylesheet classes use the `wp-` prefix (e.g., `.wp-panel`, `.wp-tab`).
 - **Light mode** — Applied by toggling the `wp-light` CSS class on `.wp-panel`; all light-mode rules are `.wp-panel.wp-light` descendant selectors.
 - **Pressure trend** — Compares `surface_pressure` now vs. 3 hours ago; threshold 2 hPa triggers ↑/↓ arrows.

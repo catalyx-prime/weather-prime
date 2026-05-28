@@ -34,56 +34,48 @@ const logError = (...args) => { if (DEBUG) console.error(...args); };
 
 // ── WMO weather code table ────────────────────────────────────────────────
 
+// Weather-condition icons are Meteocons (static fill) slugs — the basenames of
+// the SVGs bundled in icons/, rendered to colour St.Icons by weatherIcon().
+// Codes that read differently by day vs night carry {day, night}; the rest a
+// single {icon} (Meteocons has no day/night split for bare precipitation).
 const WMO = {
-    0:  {icon: '☀️',  desc: 'Clear sky'},
-    1:  {icon: '🌤️', desc: 'Mainly clear'},
-    2:  {icon: '⛅',  desc: 'Partly cloudy'},
-    3:  {icon: '☁️',  desc: 'Overcast'},
-    45: {icon: '🌁', desc: 'Fog'},
-    48: {icon: '🌁', desc: 'Rime fog'},
-    51: {icon: '🌦️', desc: 'Light drizzle'},
-    53: {icon: '🌦️', desc: 'Drizzle'},
-    55: {icon: '🌦️', desc: 'Dense drizzle'},
-    56: {icon: '🌨️', desc: 'Light freezing drizzle'},
-    57: {icon: '🌨️', desc: 'Freezing drizzle'},
-    61: {icon: '🌧️', desc: 'Slight rain'},
-    63: {icon: '🌧️', desc: 'Rain'},
-    65: {icon: '🌧️', desc: 'Heavy rain'},
-    66: {icon: '🌨️', desc: 'Light freezing rain'},
-    67: {icon: '🌨️', desc: 'Freezing rain'},
-    71: {icon: '❄️',  desc: 'Slight snow'},
-    73: {icon: '❄️',  desc: 'Snowfall'},
-    75: {icon: '❄️',  desc: 'Heavy snow'},
-    77: {icon: '🌨️', desc: 'Snow grains'},
-    80: {icon: '🌦️', desc: 'Slight showers'},
-    81: {icon: '🌦️', desc: 'Showers'},
-    82: {icon: '🌧️', desc: 'Violent showers'},
-    85: {icon: '🌨️', desc: 'Slight snow showers'},
-    86: {icon: '🌨️', desc: 'Heavy snow showers'},
-    95: {icon: '⛈️', desc: 'Thunderstorm'},
-    96: {icon: '⛈️', desc: 'Thunderstorm w/ hail'},
-    99: {icon: '⛈️', desc: 'Thunderstorm w/ heavy hail'},
+    0:  {day: 'clear-day',          night: 'clear-night',          desc: 'Clear sky'},
+    1:  {day: 'mostly-clear-day',   night: 'mostly-clear-night',   desc: 'Mainly clear'},
+    2:  {day: 'partly-cloudy-day',  night: 'partly-cloudy-night',  desc: 'Partly cloudy'},
+    3:  {day: 'overcast-day',       night: 'overcast-night',       desc: 'Overcast'},
+    45: {day: 'fog-day',            night: 'fog-night',            desc: 'Fog'},
+    48: {day: 'fog-day',            night: 'fog-night',            desc: 'Rime fog'},
+    51: {icon: 'drizzle',       desc: 'Light drizzle'},
+    53: {icon: 'drizzle',       desc: 'Drizzle'},
+    55: {icon: 'drizzle',       desc: 'Dense drizzle'},
+    56: {icon: 'sleet',         desc: 'Light freezing drizzle'},
+    57: {icon: 'sleet',         desc: 'Freezing drizzle'},
+    61: {icon: 'rain',          desc: 'Slight rain'},
+    63: {icon: 'rain',          desc: 'Rain'},
+    65: {icon: 'rain',          desc: 'Heavy rain'},
+    66: {icon: 'sleet',         desc: 'Light freezing rain'},
+    67: {icon: 'sleet',         desc: 'Freezing rain'},
+    71: {icon: 'snow',          desc: 'Slight snow'},
+    73: {icon: 'snow',          desc: 'Snowfall'},
+    75: {icon: 'snow',          desc: 'Heavy snow'},
+    77: {icon: 'snow',          desc: 'Snow grains'},
+    80: {day: 'partly-cloudy-day-rain', night: 'partly-cloudy-night-rain', desc: 'Slight showers'},
+    81: {icon: 'rain',          desc: 'Showers'},
+    82: {icon: 'extreme-rain',  desc: 'Violent showers'},
+    85: {day: 'partly-cloudy-day-snow', night: 'partly-cloudy-night-snow', desc: 'Slight snow showers'},
+    86: {icon: 'snow',          desc: 'Heavy snow showers'},
+    95: {icon: 'thunderstorms',      desc: 'Thunderstorm'},
+    96: {icon: 'thunderstorms-hail', desc: 'Thunderstorm w/ hail'},
+    99: {icon: 'thunderstorms-hail', desc: 'Thunderstorm w/ heavy hail'},
 };
 
-// Night variants for the daytime icons that contain a sun. Everything else
-// (overcast, rain, snow, fog, thunder) looks the same after dark, so only the
-// sun-bearing codes need an override.
-const WMO_NIGHT = {
-    0:  '🌙',   // clear sky
-    1:  '🌙',   // mainly clear
-    2:  '☁️',   // partly cloudy (no standard moon-behind-cloud glyph)
-    51: '🌧️',  // light drizzle
-    53: '🌧️',  // drizzle
-    55: '🌧️',  // dense drizzle
-    80: '🌧️',  // slight showers
-    81: '🌧️',  // showers
-};
-
+// Meteocons ships dedicated day/night art for every sky-dominant condition, so
+// the old separate night-override table is gone: pick .night after dark when
+// the code defines one, else fall back to the single icon.
 function wmo(code, isDay = 1) {
-    const base = WMO[code] ?? {icon: '🌡️', desc: 'Unknown'};
-    if (!isDay && WMO_NIGHT[code] != null)
-        return {icon: WMO_NIGHT[code], desc: base.desc};
-    return base;
+    const base = WMO[code] ?? {icon: 'not-available', desc: 'Unknown'};
+    const icon = (!isDay && base.night) ? base.night : (base.day ?? base.icon);
+    return {icon, desc: base.desc};
 }
 
 function moonPhaseIcon(phaseName) {
@@ -569,15 +561,16 @@ function fetchWeatherAPI(lat, lon, key) {
 }
 
 function wApiIcon(condText, isDay) {
-    const t = condText.toLowerCase();
-    if (t.includes('thunder'))                        return '⛈️';
-    if (t.includes('snow') || t.includes('blizzard')) return '❄️';
-    if (t.includes('sleet') || t.includes('ice'))     return '🌨️';
-    if (t.includes('rain') || t.includes('drizzle'))  return '🌧️';
-    if (t.includes('mist') || t.includes('fog'))      return '🌁';
-    if (t.includes('overcast'))                       return '☁️';
-    if (t.includes('cloud'))                          return isDay ? '⛅' : '☁️';
-    return isDay ? '☀️' : '🌙';
+    const t  = condText.toLowerCase();
+    const dn = (day, night) => (isDay ? day : night);
+    if (t.includes('thunder'))                        return 'thunderstorms';
+    if (t.includes('snow') || t.includes('blizzard')) return 'snow';
+    if (t.includes('sleet') || t.includes('ice'))     return 'sleet';
+    if (t.includes('rain') || t.includes('drizzle'))  return 'rain';
+    if (t.includes('mist') || t.includes('fog'))      return dn('fog-day', 'fog-night');
+    if (t.includes('overcast'))                       return dn('overcast-day', 'overcast-night');
+    if (t.includes('cloud'))                          return dn('partly-cloudy-day', 'partly-cloudy-night');
+    return dn('clear-day', 'clear-night');
 }
 
 function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit, dailyWindDirs = null) {
@@ -1049,6 +1042,39 @@ function label(text, styleClass = '') {
     return new St.Label({text: String(text), style_class: styleClass});
 }
 
+// Absolute path to the bundled Meteocons icons/ directory, set in enable() from
+// the extension install path (module-level so the helpers below can reach it
+// without threading it through every WeatherPanel/indicator call site).
+let ICON_DIR = null;
+
+// Gio.FileIcon for a Meteocons slug (basename of a bundled SVG). Unknown/empty
+// slugs fall back to the neutral 'not-available' glyph rather than a broken
+// icon. Used both to build St.Icons and to swap the pill icon in place.
+function iconGicon(slug) {
+    return Gio.FileIcon.new(
+        Gio.File.new_for_path(`${ICON_DIR}/${slug || 'not-available'}.svg`));
+}
+
+// Drop-down tab glyphs (current/hourly/daily) are nudged up by this many pixels. The
+// Meteocons SVGs sit a touch low in their rows (vs. the emoji they replaced);
+// translation_y shifts the painted icon without disturbing layout/spacing, which St
+// CSS can't do (no transform property, and margins would only move it by an
+// alignment-dependent fraction). The top-bar pill icons pass rise=0 — they sit
+// centred in the pill at their original position without a nudge.
+const ICON_RISE = 5;
+
+// A colour St.Icon for a Meteocons slug. Size is left to CSS (the icon-size
+// property on styleClass, with wp-medium/wp-large overrides) so icons track the
+// panel-size setting the same way the old emoji labels did via font-size. rise is
+// the upward translation_y nudge in pixels (pass 0 for the top-bar pill icons).
+function weatherIcon(slug, styleClass = '', rise = ICON_RISE) {
+    return new St.Icon({
+        gicon: iconGicon(slug),
+        style_class: styleClass,
+        translation_y: -rise,
+    });
+}
+
 function hbox(styleClass = '') {
     return new St.BoxLayout({style_class: styleClass, x_expand: true});
 }
@@ -1483,7 +1509,7 @@ class WeatherPanel {
         const box = vbox('wp-current');
 
         const top = hbox('wp-current-top');
-        top.add_child(label(c.icon, 'wp-cur-icon'));
+        top.add_child(weatherIcon(c.icon, 'wp-cur-icon'));
         const right = vbox('wp-cur-right');
         right.add_child(label(c.temp, 'wp-cur-temp'));
         const descLbl = label(c.desc, 'wp-cur-desc');
@@ -1581,7 +1607,7 @@ class WeatherPanel {
         this._data.hourly.forEach(h => {
             const row = hbox('wp-hour-row');
             row.add_child(label(h.time,          'wp-hour-time'));
-            row.add_child(label(h.icon,          'wp-hour-icon'));
+            row.add_child(weatherIcon(h.icon, 'wp-hour-icon'));
             row.add_child(spacer());
             row.add_child(label(h.humidity,      'wp-hour-humidity'));
             row.add_child(spacer());
@@ -1603,7 +1629,9 @@ class WeatherPanel {
         header.add_child(label('Humidity', 'wp-day-humidity wp-col-header'));
         header.add_child(spacer());
         header.add_child(label('Hi',       'wp-day-hi wp-col-header'));
-        header.add_child(label(' / ',      'wp-day-sep wp-col-header'));
+        const sepHdr = label(' / ',        'wp-day-sep wp-col-header');
+        sepHdr.clutter_text.ellipsize = Pango.EllipsizeMode.NONE; // never collapse to "…"
+        header.add_child(sepHdr);
         header.add_child(label('Lo',       'wp-day-lo wp-col-header'));
         header.add_child(label('Precip',   'wp-day-precip wp-col-header'));
         header.add_child(label('Wind',     'wp-day-wind wp-col-header'));
@@ -1612,12 +1640,14 @@ class WeatherPanel {
         this._data.daily.forEach(d => {
             const row = hbox('wp-day-row');
             row.add_child(label(d.day,           'wp-day-name'));
-            row.add_child(label(d.icon,          'wp-day-icon'));
+            row.add_child(weatherIcon(d.icon, 'wp-day-icon'));
             row.add_child(spacer());
             row.add_child(label(d.humidity,      'wp-day-humidity'));
             row.add_child(spacer());
             row.add_child(label(d.hi,            'wp-day-hi'));
-            row.add_child(label(' / ',           'wp-day-sep'));
+            const sep = label(' / ',             'wp-day-sep');
+            sep.clutter_text.ellipsize = Pango.EllipsizeMode.NONE; // never collapse to "…"
+            row.add_child(sep);
             row.add_child(label(d.lo,            'wp-day-lo'));
             row.add_child(label(`💧${d.precip}`, 'wp-day-precip'));
             row.add_child(label(d.wind ?? '--',  'wp-day-wind'));
@@ -2010,10 +2040,18 @@ class WeatherIndicator extends PanelMenu.Button {
         pill.set_y_expand(true);
         pill.set_y_align(Clutter.ActorAlign.CENTER);
 
-        this._pillIcon  = label('🌡️', 'wp-pill-icon');
+        this._pillIcon  = weatherIcon('thermometer', 'wp-pill-icon', 0);
         this._pillTemp  = label('--',  'wp-pill-temp');
-        this._pillAlert = label('⚠',  'wp-pill-alert');
+        this._pillAlert = weatherIcon('code-orange', 'wp-pill-alert', 0);
         this._pillAlert.hide();
+
+        // The pill's height is set by the tallest child (the icon), so center
+        // each child on the cross axis — otherwise the shorter temp label rides
+        // high instead of lining up with the icon. A horizontal St.BoxLayout
+        // does not propagate y_align to its children, so set it per child.
+        this._pillIcon.set_y_align(Clutter.ActorAlign.CENTER);
+        this._pillTemp.set_y_align(Clutter.ActorAlign.CENTER);
+        this._pillAlert.set_y_align(Clutter.ActorAlign.CENTER);
 
         pill.add_child(this._pillIcon);
         pill.add_child(this._pillTemp);
@@ -2405,7 +2443,7 @@ class WeatherIndicator extends PanelMenu.Button {
             this._cachedLon = this._lon;
 
             const alerts = parsed.alerts ?? [];
-            this._pillIcon.set_text(parsed.current.icon);
+            this._pillIcon.set_gicon(iconGicon(parsed.current.icon));
             this._pillTemp.set_text(parsed.current.temp);
             if (alerts.length > 0) this._pillAlert.show();
             else                   this._pillAlert.hide();
@@ -2414,7 +2452,7 @@ class WeatherIndicator extends PanelMenu.Button {
 
         } catch (e) {
             this._panel.setError(e.message);
-            this._pillIcon.set_text('⚠️');
+            this._pillIcon.set_gicon(iconGicon('not-available'));
             this._pillTemp.set_text('--');
             logError('[WeatherPrime]', e.message);
         } finally {
@@ -2484,6 +2522,9 @@ class WeatherIndicator extends PanelMenu.Button {
 export default class WeatherPrimeExtension extends Extension {
     enable() {
         this._settings = this.getSettings();
+        // Resolve the bundled Meteocons icons/ directory from the install path
+        // so the module-level icon helpers can build St.Icons from it.
+        ICON_DIR = `${this.path}/icons`;
         // Create and register the indicator once: addToStatusArea claims the
         // role and wires the menu into the panel's menu manager. A position
         // change afterwards only reparents the container (see _reposition), so
