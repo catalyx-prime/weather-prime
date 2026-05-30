@@ -1108,7 +1108,11 @@ function precipSparkline(series, height, opts = {}) {
     const max = series.reduce((m, v) => (v > m ? v : m), 0);
     const fmtLabel = v => (imperial ? v.toFixed(2) : v.toFixed(1));
     area.connect('repaint', () => {
-        const cr     = area.get_context();
+        const cr = area.get_context();
+        // get_context() should never be null inside repaint, but guard anyway:
+        // a null here would otherwise make the finally's cr.$dispose() throw,
+        // and an exception escaping a repaint handler crashes the shell's paint.
+        if (!cr) return;
         const [w, h] = area.get_surface_size();
         try {
             if (!(w > 0) || series.length === 0) return;
@@ -1164,6 +1168,10 @@ function precipSparkline(series, height, opts = {}) {
                 cr.showText(txt);
                 lastRight = x + tw;
             }
+        } catch (e) {
+            // Never let a draw error propagate out of the repaint signal into
+            // Clutter's paint cycle — that would take down gnome-shell.
+            logError('[WeatherPrime] precip sparkline repaint failed:', e.message);
         } finally {
             cr.$dispose();
         }
@@ -2010,6 +2018,7 @@ class WeatherIndicator extends PanelMenu.Button {
         this._lon      = null;
         this._locName  = '';
         this._busy     = false;
+        this._destroyed = false; // set in destroy(); guards async continuations after teardown
         this._geoclue  = null;   // cached GeoClue client, created once and reused
         this._geoLat   = null;   // coords of the last reverse-geocode; skip re-geocoding when unchanged
         this._geoLon   = null;
@@ -2209,6 +2218,15 @@ class WeatherIndicator extends PanelMenu.Button {
                         catch (e) { logError('[WeatherPrime] GeoClue init failed:', e.message); resolve(null); }
                     });
             });
+            // destroy() can run during the await above; at that point _geoclue
+            // is still null so destroy()'s client.stop() is skipped. Stop the
+            // just-resolved client ourselves rather than leak a live D-Bus
+            // location subscription attached to a torn-down indicator.
+            if (this._destroyed) {
+                try { this._geoclue?.get_client()?.stop(); } catch { /* no client under portal */ }
+                this._geoclue = null;
+                return;
+            }
         }
 
         const loc = this._geoclue?.get_location() ?? null;
@@ -2249,6 +2267,7 @@ class WeatherIndicator extends PanelMenu.Button {
             // Resolve location first so we can detect when GeoClue (or manual
             // settings) moved us, even when cached weather is otherwise fresh.
             await this._resolveLocation();
+            if (this._destroyed) return;
             this._panel.setLocation(this._locName);
 
             // Persist the resolved coords/name in auto mode so the Preferences
@@ -2439,6 +2458,11 @@ class WeatherIndicator extends PanelMenu.Button {
                 parsed.astronomy = { ...(parsed.astronomy ?? {}), ...this._cachedUsno };
             }
 
+            // The weather/AQ/USNO awaits above can each run up to the 30s Soup
+            // timeout; bail if we were torn down meanwhile, before writing to
+            // (now-finalized) pill widgets and the panel.
+            if (this._destroyed) return;
+
             this._cachedLat = this._lat;
             this._cachedLon = this._lon;
 
@@ -2451,9 +2475,13 @@ class WeatherIndicator extends PanelMenu.Button {
             this._panel.setData(parsed, this.menu.isOpen);
 
         } catch (e) {
-            this._panel.setError(e.message);
-            this._pillIcon.set_gicon(iconGicon('not-available'));
-            this._pillTemp.set_text('--');
+            // A teardown mid-fetch surfaces here as a finalized-object access;
+            // don't try to render the "error" into widgets that no longer exist.
+            if (!this._destroyed) {
+                this._panel.setError(e.message);
+                this._pillIcon.set_gicon(iconGicon('not-available'));
+                this._pillTemp.set_text('--');
+            }
             logError('[WeatherPrime]', e.message);
         } finally {
             this._busy = false;
@@ -2481,6 +2509,7 @@ class WeatherIndicator extends PanelMenu.Button {
                 logError('[WeatherPrime] map tile fetch failed:', e.message);
                 return null;
             });
+            if (this._destroyed) return;
             if (tiles) {
                 this._cachedMap    = tiles;
                 this._lastMapFetch = Date.now();
@@ -2497,6 +2526,11 @@ class WeatherIndicator extends PanelMenu.Button {
     }
 
     destroy() {
+        // Flag teardown first so any in-flight _fetch/_ensureMap continuation
+        // (the boot-time fetch can still be suspended on a slow network when a
+        // lock/session-mode flip disables us) bails at its next await instead of
+        // touching now-finalized widgets.
+        this._destroyed = true;
         if (this._menuSignalId) {
             this.menu.disconnect(this._menuSignalId);
             this._menuSignalId = null;
