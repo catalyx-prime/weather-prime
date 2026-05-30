@@ -1285,6 +1285,10 @@ class WeatherPanel {
         // while it is already active — reverts to showing all alerts. Only the
         // banner passes a specific index.
         this._alertFilter = alertFilter;
+        // Leaving the Map tab while the radar loop is running counts as a pause:
+        // mark it user-paused so it stays stopped until the user hits ▶ again,
+        // instead of auto-resuming when they come back to the tab.
+        if (this._tab === 'map' && id !== 'map') this._mapUserPaused = true;
         this._tab = id;
         Object.entries(this._tabBtns).forEach(([tid, btn]) => {
             if (tid === id) btn.add_style_class_name('active');
