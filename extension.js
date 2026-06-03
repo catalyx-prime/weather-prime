@@ -2218,6 +2218,17 @@ class WeatherIndicator extends PanelMenu.Button {
                 return;
             }
 
+            // The tide source only affects one additive line in the Astronomy
+            // tab. Rather than drop every cache and re-download weather, AQ and
+            // radar, fetch just the tide line, merge it into the cached payload
+            // and re-render immediately so the tab updates the moment the user
+            // flips the setting. (_refreshTides falls back to a full fetch when
+            // there's no cached payload to merge into yet.)
+            if (key === 'tide-source') {
+                this._refreshTides();
+                return;
+            }
+
             // Everything else affects the fetched data: drop caches and refetch.
             // The Soup.Session is intentionally kept — its config is static, so
             // reusing it preserves keep-alive connections across the refetch.
@@ -2606,6 +2617,32 @@ class WeatherIndicator extends PanelMenu.Button {
         } finally {
             this._busy = false;
         }
+    }
+
+    // Targeted refresh for a `tide-source` change: fetch only today's tide line
+    // for the current location/source and merge it into the cached astronomy
+    // block, then re-render so the Astronomy tab reflects the new setting at
+    // once. Tides are additive (the rest of the payload is untouched), so this
+    // avoids a full weather/AQ/radar refetch. With no cached payload yet (the
+    // menu has never been opened), defer to a normal forced fetch instead.
+    async _refreshTides() {
+        if (!this._cachedParsed || this._lat == null) {
+            this._fetch(true);
+            return;
+        }
+        const source = this._settings.get_string('tide-source');
+        let tides = null;
+        if (source !== 'off') {
+            const key = this._settings.get_string('weatherapi-key').trim();
+            tides = await fetchTides(source, this._lat, this._lon, key);
+        }
+        // Teardown (or a full fetch that replaced the cache) can land during the
+        // await above; bail rather than write into a stale/finalized payload.
+        if (this._destroyed || !this._cachedParsed) return;
+        const astro = this._cachedParsed.astronomy ?? (this._cachedParsed.astronomy = {});
+        if (tides) astro.tides = tides;   // coastal: show the line
+        else       delete astro.tides;    // off / inland / fetch failure: hide it
+        this._panel.setData(this._cachedParsed, this.menu.isOpen);
     }
 
     // Lazily fetch radar tiles, but only when the Map tab is actually being
