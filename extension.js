@@ -736,6 +736,102 @@ function usnoDayKey() {
     return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
+// ── Tides (opt-in via the `tide-source` setting) ──────────────────────────
+// Two sources, both producing one compact "▲ 3:45a · ▼ 9:50a · …" line of
+// today's high/low tides that's merged into astronomy.tides (null = hide):
+//   • weatherapi — WeatherAPI.com Marine API. Global, but reuses the
+//                  weatherapi-key and returns no tide array inland.
+//   • noaa       — NOAA CO-OPS. US only, keyless; we find the nearest tide-
+//                  prediction station and bail if none is within range.
+// Inland (no coastal source nearby) the fetch yields null, so the line — and
+// any "Tides" heading — simply doesn't render. Fetched alongside the weather
+// payload and cached with it, so it shares the weather TTL like sun times do.
+
+const TIDE_STATION_MAX_KM = 50;  // farther than this, treat the spot as inland
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+    const R = 6371, toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// Pull the literal "… HH:MM …" out of a "YYYY-MM-DD HH:MM" stamp as "h:mma".
+function tideTime(s) {
+    const m = String(s).match(/(\d{1,2}):(\d{2})/);
+    if (!m) return null;
+    let h = parseInt(m[1], 10);
+    const ampm = h >= 12 ? 'p' : 'a';
+    h = h % 12 || 12;
+    return `${h}:${m[2]}${ampm}`;
+}
+
+// events: [{time, type:'H'|'L'}] in chronological order → one display line.
+function fmtTideLine(events) {
+    const e = (events ?? []).filter(x => x.time);
+    if (!e.length) return null;
+    return e.map(x => `${x.type === 'H' ? '▲' : '▼'} ${x.time}`).join('  ·  ');
+}
+
+async function fetchTidesWeatherApi(lat, lon, key) {
+    if (!key) return null;
+    const params = new URLSearchParams({key, q: `${lat},${lon}`, days: 1, tides: 'yes'});
+    const data = await fetchJSON(`https://api.weatherapi.com/v1/marine.json?${params}`);
+    const tideArr = data?.forecast?.forecastday?.[0]?.day?.tides?.[0]?.tide;
+    if (!Array.isArray(tideArr)) return null;
+    return fmtTideLine(tideArr.map(t => ({
+        time: tideTime(t.tide_time),
+        type: /high/i.test(t.tide_type) ? 'H' : 'L',
+    })));
+}
+
+// NOAA's tide-prediction station list is static, so cache it for the session.
+let _noaaStations = null;
+async function noaaNearestStation(lat, lon) {
+    if (!_noaaStations) {
+        const data = await fetchJSON(
+            'https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions');
+        _noaaStations = data?.stations ?? [];
+    }
+    let best = null, bestKm = Infinity;
+    for (const s of _noaaStations) {
+        const km = haversineKm(lat, lon, parseFloat(s.lat), parseFloat(s.lng));
+        if (km < bestKm) { bestKm = km; best = s; }
+    }
+    return bestKm <= TIDE_STATION_MAX_KM ? best : null;
+}
+
+async function fetchTidesNoaa(lat, lon) {
+    const station = await noaaNearestStation(lat, lon);
+    if (!station) return null;   // not near a US tide station → inland, hide
+    const params = new URLSearchParams({
+        product: 'predictions', application: 'WeatherPrime', date: 'today',
+        datum: 'MLLW', station: station.id, time_zone: 'lst_ldt',
+        units: 'english', interval: 'hilo', format: 'json',
+    });
+    const data = await fetchJSON(
+        `https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?${params}`);
+    const preds = data?.predictions;
+    if (!Array.isArray(preds)) return null;
+    return fmtTideLine(preds.map(p => ({
+        time: tideTime(p.t),
+        type: p.type === 'H' ? 'H' : 'L',
+    })));
+}
+
+// Dispatch on the `tide-source` setting. Errors (and the 'off' default) → null.
+function fetchTides(source, lat, lon, weatherApiKey) {
+    let p;
+    if (source === 'weatherapi')  p = fetchTidesWeatherApi(lat, lon, weatherApiKey);
+    else if (source === 'noaa')   p = fetchTidesNoaa(lat, lon);
+    else                          return Promise.resolve(null);
+    return p.catch(e => {
+        logError('[WeatherPrime] Tide fetch failed:', e.message);
+        return null;
+    });
+}
+
 // ── AirNow (US EPA, free with registration) ───────────────────────────────
 
 async function fetchAirNow(lat, lon, key) {
@@ -1397,7 +1493,8 @@ class WeatherPanel {
         const a = data.astronomy;
         const hasAstro = !!a && (a.sunrise || a.sunset || a.moonrise || a.moonset ||
                                  a.moonPhase || a.moonIllumination != null ||
-                                 a.solarNoon || a.nextNewMoon || a.nextFullMoon);
+                                 a.solarNoon || a.nextNewMoon || a.nextFullMoon ||
+                                 a.tides);
         if (hasAstro) {
             this._tabBtns.astronomy?.show();
         } else {
@@ -2005,6 +2102,13 @@ class WeatherPanel {
             ]);
         }
 
+        // Tides: one compact line of today's highs (▲) and lows (▼). Present
+        // only when a tide source is configured and the location is coastal.
+        if (a.tides) {
+            box.add_child(label('Tides', 'wp-section-title'));
+            box.add_child(label(`🌊  ${a.tides}`, 'wp-astro-tide'));
+        }
+
         this._content.add_child(box);
     }
 }
@@ -2359,8 +2463,13 @@ class WeatherIndicator extends PanelMenu.Button {
                 parsed.airquality.openweather = aqResult.openweather;
             } else {
                 const waiKey = this._settings.get_string('weatherai-key').trim();
+                // Tides are opt-in and source-specific. The weatherapi source
+                // reuses the WeatherAPI.com key regardless of the active weather
+                // provider; noaa is keyless. fetchTides handles 'off' → null.
+                const tideSource = this._settings.get_string('tide-source');
+                const tideKey    = this._settings.get_string('weatherapi-key').trim();
 
-                const [aqData, alerts, waiAstroRaw, precipRaw] = await Promise.all([
+                const [aqData, alerts, waiAstroRaw, precipRaw, tides] = await Promise.all([
                     fetchJSON(buildAirQualityUrl(this._lat, this._lon)).catch(() => null),
                     fetchAlerts(this._lat, this._lon),
                     waiKey
@@ -2372,6 +2481,7 @@ class WeatherIndicator extends PanelMenu.Button {
                     // Last-24h precip total for the Current tab. Always keyless
                     // Open-Meteo regardless of api-provider — see buildOpenMeteoPrecip24hUrl.
                     fetchJSON(buildOpenMeteoPrecip24hUrl(this._lat, this._lon, unit)).catch(() => null),
+                    fetchTides(tideSource, this._lat, this._lon, tideKey),
                 ]);
 
                 if (provider === 'weatherapi') {
@@ -2426,6 +2536,12 @@ class WeatherIndicator extends PanelMenu.Button {
                         logError('[WeatherPrime] WeatherAI astronomy parse error:', e.message);
                     }
                 }
+
+                // Tides are additive on top of whatever astronomy the providers
+                // supplied; null (off / inland / fetch failure) leaves it absent
+                // so the Astronomy tab omits the line. Set after the WeatherAI
+                // merge above, which rebuilds parsed.astronomy from scratch.
+                if (tides) (parsed.astronomy ??= {}).tides = tides;
 
                 parsed.alerts = alerts;
                 parsed.airquality.airnow      = aqResult.airnow;

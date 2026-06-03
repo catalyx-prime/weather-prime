@@ -60,7 +60,8 @@ WeatherPrimeExtension          ← ES module default export; enable()/disable() 
                         (astronomy hidden only if no source supplies any astro data;
                          sun times come from the active weather provider, moon detail
                          from WeatherAPI or a WeatherAI.io key, solar noon + next
-                         new/full moon dates from USNO (keyless);
+                         new/full moon dates from USNO (keyless); optional tide
+                         line from WeatherAPI.com Marine or NOAA, hidden inland;
                          map hidden if RainViewer tile fetch failed)
 ```
 
@@ -90,6 +91,7 @@ _fetch(force)
         fetchAlerts(),                          // NWS, US only
         fetchWeatherAi('/astronomy', …),        // only if weatherai-key set; overlays moon detail
         fetchJSON(buildOpenMeteoPrecip24hUrl()), // last-24h precip series+total, keyless, both providers
+        fetchTides(tide-source, …),             // only if tide-source != off; WeatherAPI.com Marine or NOAA CO-OPS
      ])
      then fetchJSON(buildOpenMeteoUrl()) OR fetchWeatherAPI()
      then parseOpenMeteo() / parseWeatherAPI()   // each emits astronomy (sun times always; moon from WeatherAPI)
@@ -122,8 +124,10 @@ Parsed data shape:
     pm25, pm10,                   // Open-Meteo fallback, always present
   },
   astronomy:  { sunrise, sunset, moonrise, moonset, moonPhase, moonIllumination,
-                solarNoon, nextNewMoon, nextFullMoon }, // any field may be null; tab hidden if all sun/moon time/phase fields are.
-                                                        // solarNoon + next moon dates come from USNO (keyless); the latter two are "Mon D" date strings
+                solarNoon, nextNewMoon, nextFullMoon, tides? }, // any field may be null; tab hidden if all sun/moon time/phase fields are.
+                                                        // solarNoon + next moon dates come from USNO (keyless); the latter two are "Mon D" date strings.
+                                                        // tides is an opt-in single line of today's highs/lows ("▲ 3:45a · ▼ 9:50a · …"),
+                                                        // null when the tide source is off or the location is inland (see tide-source)
   
   map:        { cells, frames: [{ path, time, kind }], zoom } | undefined,
               // frames are radar tiles oldest→newest (past then nowcast);
@@ -155,6 +159,7 @@ Defined in `schemas/org.gnome.shell.extensions.weather-prime.gschema.xml`. Key o
 | `airnow-api-key` | string | `''` | US AirNow; per-pollutant AQI when a station is within ~25 mi |
 | `openweather-api-key` | string | `''` | OpenWeatherMap Air Pollution; global 1–5 AQI + 8 pollutant concentrations |
 | `aq-source` | string | `auto` | `auto` (AirNow → OpenWeatherMap → Open-Meteo), `airnow`, `openweather`, `open-meteo` |
+| `tide-source` | string | `off` | `off`, `weatherapi` (global, reuses `weatherapi-key`), or `noaa` (US only, keyless). Adds the Astronomy-tab tide line; hidden when off or inland |
 | `location-auto` | bool | `true` | Uses GeoClue2 when true |
 | `location-latitude/longitude` | double | `0.0` | Used for manual location; also cached from GeoClue2 |
 | `location-name` | string | `''` | Display name; cached from Nominatim or chosen from prefs city search |
@@ -179,6 +184,8 @@ After editing the schema XML, always recompile: `glib-compile-schemas <path>/sch
 | AirNow (`airnowapi.org`) | Yes (free) | US full AQI by pollutant; requires a station within ~25 mi |
 | OpenWeatherMap (`api.openweathermap.org/data/2.5/air_pollution`) | Yes (free) | Global air pollution; coarse 1–5 AQI but always returns all 8 pollutants |
 | USNO (`aa.usno.navy.mil/api`) | No | Solar noon (sun upper transit) + dates of the next new & full moon for the Astronomy tab; keyless, refreshed at most once per calendar day (own schedule, not the weather TTL; manual refresh bypasses the day gate), degrades silently |
+| WeatherAPI.com Marine (`marine.json`) | Yes (reuses `weatherapi-key`) | Opt-in tide line (`tide-source=weatherapi`); global coastal, returns an error/no tides inland so the line hides |
+| NOAA CO-OPS (`tidesandcurrents.noaa.gov`) | No | Opt-in tide line (`tide-source=noaa`); US only. Nearest tide-prediction station within ~50 km (else treated as inland and hidden); keyless |
 | RainViewer (`api.rainviewer.com`) | No | Precipitation radar tiles for the Map tab; 10-minute publish cadence |
 | Esri World Imagery | No | Satellite base layer under the radar tiles on the Map tab |
 | NWS (`api.weather.gov`) | No | US weather alerts |

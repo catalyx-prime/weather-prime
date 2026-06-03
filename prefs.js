@@ -292,6 +292,31 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
 
         page.add(aqGroup);
 
+        const tideGroup = new Adw.PreferencesGroup({
+            title:       'Tides',
+            description: 'Adds a high/low tide line to the Astronomy tab for coastal locations. WeatherAPI.com works worldwide but reuses the WeatherAPI.com key above. NOAA is keyless but covers the United States only. Either way the line is hidden when the location is not near the coast.',
+        });
+
+        const tideSources = [
+            {value: 'off',        label: 'Off'},
+            {value: 'weatherapi', label: 'WeatherAPI.com (global, uses WeatherAPI.com key)'},
+            {value: 'noaa',       label: 'NOAA (US only, no key)'},
+        ];
+        const tideSourceRow = new Adw.ComboRow({
+            title:    'Tide source',
+            subtitle: 'Where to fetch tide predictions from',
+            model:    Gtk.StringList.new(tideSources.map(s => s.label)),
+        });
+        const savedTideSource = settings.get_string('tide-source');
+        const tideIdx = tideSources.findIndex(s => s.value === savedTideSource);
+        tideSourceRow.set_selected(tideIdx >= 0 ? tideIdx : 0);
+        tideSourceRow.connect('notify::selected', () => {
+            const src = tideSources[tideSourceRow.get_selected()];
+            if (src) settings.set_string('tide-source', src.value);
+        });
+        tideGroup.add(tideSourceRow);
+        page.add(tideGroup);
+
         const fetchOptions = [
             {label: 'Every 15 minutes', minutes: 15},
             {label: 'Every 30 minutes', minutes: 30},
