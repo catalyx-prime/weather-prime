@@ -528,12 +528,6 @@
     color: rgba(255, 255, 255, 0.55);
 }
 
-.wp-astro-tide {
-    font-size: 13px;
-    padding: 2px 4px;
-    color: rgba(255, 255, 255, 0.85);
-}
-
 /* ── Weather map ────────────────────────────────────────────────────────── */
 
 .wp-map {
@@ -759,10 +753,6 @@
 
 .wp-panel.wp-light .wp-astro-phase-illum {
     color: rgba(0, 0, 0, 0.5);
-}
-
-.wp-panel.wp-light .wp-astro-tide {
-    color: rgba(0, 0, 0, 0.8);
 }
 
 .wp-panel.wp-light .wp-map-button {

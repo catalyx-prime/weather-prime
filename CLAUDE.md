@@ -126,7 +126,8 @@ Parsed data shape:
   astronomy:  { sunrise, sunset, moonrise, moonset, moonPhase, moonIllumination,
                 solarNoon, nextNewMoon, nextFullMoon, tides? }, // any field may be null; tab hidden if all sun/moon time/phase fields are.
                                                         // solarNoon + next moon dates come from USNO (keyless); the latter two are "Mon D" date strings.
-                                                        // tides is an opt-in single line of today's highs/lows ("▲ 3:45a · ▼ 9:50a · …"),
+                                                        // tides is an opt-in array of today's high/low events ([{time:'3:45a', type:'H'|'L'}, …]),
+                                                        // rendered as detail-grid cells on the Astronomy tab (which grows its scroll height when present);
                                                         // null when the tide source is off or the location is inland (see tide-source)
   
   map:        { cells, frames: [{ path, time, kind }], zoom } | undefined,

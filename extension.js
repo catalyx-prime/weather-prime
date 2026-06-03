@@ -737,8 +737,9 @@ function usnoDayKey() {
 }
 
 // ── Tides (opt-in via the `tide-source` setting) ──────────────────────────
-// Two sources, both producing one compact "▲ 3:45a · ▼ 9:50a · …" line of
-// today's high/low tides that's merged into astronomy.tides (null = hide):
+// Two sources, both producing today's high/low events as a structured array
+// [{time:'3:45a', type:'H'|'L'}, …] merged into astronomy.tides (null = hide).
+// The Astronomy tab renders these as detail-grid cells like the sun/moon rows:
 //   • weatherapi — WeatherAPI.com Marine API. Global, but reuses the
 //                  weatherapi-key and returns no tide array inland.
 //   • noaa       — NOAA CO-OPS. US only, keyless; we find the nearest tide-
@@ -767,11 +768,11 @@ function tideTime(s) {
     return `${h}:${m[2]}${ampm}`;
 }
 
-// events: [{time, type:'H'|'L'}] in chronological order → one display line.
-function fmtTideLine(events) {
+// events: [{time, type:'H'|'L'}] in chronological order. Drop any without a
+// parsed time; null if nothing usable remains (so the Astronomy tab hides it).
+function tideEvents(events) {
     const e = (events ?? []).filter(x => x.time);
-    if (!e.length) return null;
-    return e.map(x => `${x.type === 'H' ? '▲' : '▼'} ${x.time}`).join('  ·  ');
+    return e.length ? e : null;
 }
 
 async function fetchTidesWeatherApi(lat, lon, key) {
@@ -780,7 +781,7 @@ async function fetchTidesWeatherApi(lat, lon, key) {
     const data = await fetchJSON(`https://api.weatherapi.com/v1/marine.json?${params}`);
     const tideArr = data?.forecast?.forecastday?.[0]?.day?.tides?.[0]?.tide;
     if (!Array.isArray(tideArr)) return null;
-    return fmtTideLine(tideArr.map(t => ({
+    return tideEvents(tideArr.map(t => ({
         time: tideTime(t.tide_time),
         type: /high/i.test(t.tide_type) ? 'H' : 'L',
     })));
@@ -814,7 +815,7 @@ async function fetchTidesNoaa(lat, lon) {
         `https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?${params}`);
     const preds = data?.predictions;
     if (!Array.isArray(preds)) return null;
-    return fmtTideLine(preds.map(p => ({
+    return tideEvents(preds.map(p => ({
         time: tideTime(p.t),
         type: p.type === 'H' ? 'H' : 'L',
     })));
@@ -1390,17 +1391,7 @@ class WeatherPanel {
             if (tid === id) btn.add_style_class_name('active');
             else            btn.remove_style_class_name('active');
         });
-        if (id === 'hourly' || id === 'map') {
-            this._scroll.add_style_class_name('wp-scroll-tall');
-        } else {
-            this._scroll.remove_style_class_name('wp-scroll-tall');
-        }
-        if (id === 'airquality') {
-            this._scroll.add_style_class_name('wp-scroll-auto');
-        } else {
-            this._scroll.remove_style_class_name('wp-scroll-auto');
-        }
-        this._render();
+        this._render();   // also applies the scroll height for the new tab
         // Selecting the Map tab triggers a lazy radar fetch (no-op if fresh).
         if (id === 'map') this._mapRequestCb?.();
     }
@@ -1547,9 +1538,25 @@ class WeatherPanel {
         });
     }
 
+    // Pick the scroll area's max-height for the active tab. Hourly/Map get the
+    // taller cap; Air Quality (long pollutant list) grows unbounded; Astronomy
+    // grows unbounded too, but only when the optional tide line is present so it
+    // doesn't get clipped. Driven from _render so it tracks data refreshes that
+    // add/remove tides while the tab is already open, not just tab switches.
+    _applyScrollHeight() {
+        if (!this._scroll) return;
+        const tab  = this._tab;
+        const tall = tab === 'hourly' || tab === 'map';
+        const auto = tab === 'airquality' ||
+                     (tab === 'astronomy' && !!this._data?.astronomy?.tides?.length);
+        this._scroll[tall ? 'add_style_class_name' : 'remove_style_class_name']('wp-scroll-tall');
+        this._scroll[auto ? 'add_style_class_name' : 'remove_style_class_name']('wp-scroll-auto');
+    }
+
     _render() {
         this._stopMapAnimation();   // frame icons are about to be destroyed
         this._content.destroy_all_children();
+        this._applyScrollHeight();
         if (!this._data) return;
         switch (this._tab) {
         case 'alerts':     this._renderAlerts();     break;
@@ -2102,11 +2109,18 @@ class WeatherPanel {
             ]);
         }
 
-        // Tides: one compact line of today's highs (▲) and lows (▼). Present
-        // only when a tide source is configured and the location is coastal.
-        if (a.tides) {
+        // Tides: today's highs (▲) and lows (▼) as detail-grid cells, matching
+        // the sun/moon rows above. Present only when a tide source is configured
+        // and the location is coastal. Chunk into rows of four so the cells stay
+        // legible at the narrowest panel size instead of crowding into one row.
+        if (a.tides?.length) {
             box.add_child(label('Tides', 'wp-section-title'));
-            box.add_child(label(`🌊  ${a.tides}`, 'wp-astro-tide'));
+            const cells = a.tides.map(t => [
+                t.type === 'H' ? '▲ High' : '▼ Low',
+                t.time,
+            ]);
+            for (let i = 0; i < cells.length; i += 4)
+                addGrid(cells.slice(i, i + 4));
         }
 
         this._content.add_child(box);
