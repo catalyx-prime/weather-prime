@@ -737,14 +737,12 @@ function usnoDayKey() {
 }
 
 // ── Tides (opt-in via the `tide-source` setting) ──────────────────────────
-// Two sources, both producing today's high/low events as a structured array
+// Produces today's high/low events as a structured array
 // [{time:'3:45a', type:'H'|'L'}, …] merged into astronomy.tides (null = hide).
-// The Astronomy tab renders these as detail-grid cells like the sun/moon rows:
-//   • weatherapi — WeatherAPI.com Marine API. Global, but reuses the
-//                  weatherapi-key and returns no tide array inland.
-//   • noaa       — NOAA CO-OPS. US only, keyless; we find the nearest tide-
-//                  prediction station and bail if none is within range.
-// Inland (no coastal source nearby) the fetch yields null, so the line — and
+// The Astronomy tab renders these as detail-grid cells like the sun/moon rows.
+// The only source is NOAA CO-OPS — US only, keyless; we find the nearest tide-
+// prediction station and bail if none is within range.
+// Inland (no coastal station nearby) the fetch yields null, so the line — and
 // any "Tides" heading — simply doesn't render. Fetched alongside the weather
 // payload and cached with it, so it shares the weather TTL like sun times do.
 
@@ -773,18 +771,6 @@ function tideTime(s) {
 function tideEvents(events) {
     const e = (events ?? []).filter(x => x.time);
     return e.length ? e : null;
-}
-
-async function fetchTidesWeatherApi(lat, lon, key) {
-    if (!key) return null;
-    const params = new URLSearchParams({key, q: `${lat},${lon}`, days: 1, tides: 'yes'});
-    const data = await fetchJSON(`https://api.weatherapi.com/v1/marine.json?${params}`);
-    const tideArr = data?.forecast?.forecastday?.[0]?.day?.tides?.[0]?.tide;
-    if (!Array.isArray(tideArr)) return null;
-    return tideEvents(tideArr.map(t => ({
-        time: tideTime(t.tide_time),
-        type: /high/i.test(t.tide_type) ? 'H' : 'L',
-    })));
 }
 
 // NOAA's tide-prediction station list is static, so cache it for the session.
@@ -822,12 +808,9 @@ async function fetchTidesNoaa(lat, lon) {
 }
 
 // Dispatch on the `tide-source` setting. Errors (and the 'off' default) → null.
-function fetchTides(source, lat, lon, weatherApiKey) {
-    let p;
-    if (source === 'weatherapi')  p = fetchTidesWeatherApi(lat, lon, weatherApiKey);
-    else if (source === 'noaa')   p = fetchTidesNoaa(lat, lon);
-    else                          return Promise.resolve(null);
-    return p.catch(e => {
+function fetchTides(source, lat, lon) {
+    if (source !== 'noaa') return Promise.resolve(null);
+    return fetchTidesNoaa(lat, lon).catch(e => {
         logError('[WeatherPrime] Tide fetch failed:', e.message);
         return null;
     });
@@ -2488,11 +2471,9 @@ class WeatherIndicator extends PanelMenu.Button {
                 parsed.airquality.openweather = aqResult.openweather;
             } else {
                 const waiKey = this._settings.get_string('weatherai-key').trim();
-                // Tides are opt-in and source-specific. The weatherapi source
-                // reuses the WeatherAPI.com key regardless of the active weather
-                // provider; noaa is keyless. fetchTides handles 'off' → null.
+                // Tides are opt-in via NOAA (US only, keyless). fetchTides
+                // handles 'off' → null.
                 const tideSource = this._settings.get_string('tide-source');
-                const tideKey    = this._settings.get_string('weatherapi-key').trim();
 
                 const [aqData, alerts, waiAstroRaw, precipRaw, tides] = await Promise.all([
                     fetchJSON(buildAirQualityUrl(this._lat, this._lon)).catch(() => null),
@@ -2506,7 +2487,7 @@ class WeatherIndicator extends PanelMenu.Button {
                     // Last-24h precip total for the Current tab. Always keyless
                     // Open-Meteo regardless of api-provider — see buildOpenMeteoPrecip24hUrl.
                     fetchJSON(buildOpenMeteoPrecip24hUrl(this._lat, this._lon, unit)).catch(() => null),
-                    fetchTides(tideSource, this._lat, this._lon, tideKey),
+                    fetchTides(tideSource, this._lat, this._lon),
                 ]);
 
                 if (provider === 'weatherapi') {
@@ -2646,10 +2627,8 @@ class WeatherIndicator extends PanelMenu.Button {
         }
         const source = this._settings.get_string('tide-source');
         let tides = null;
-        if (source !== 'off') {
-            const key = this._settings.get_string('weatherapi-key').trim();
-            tides = await fetchTides(source, this._lat, this._lon, key);
-        }
+        if (source !== 'off')
+            tides = await fetchTides(source, this._lat, this._lon);
         // Teardown (or a full fetch that replaced the cache) can land during the
         // await above; bail rather than write into a stale/finalized payload.
         if (this._destroyed || !this._cachedParsed) return;

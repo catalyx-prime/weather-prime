@@ -294,12 +294,11 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
 
         const tideGroup = new Adw.PreferencesGroup({
             title:       'Tides',
-            description: 'Adds a high/low tide line to the Astronomy tab for coastal locations. WeatherAPI.com works worldwide but reuses the WeatherAPI.com key above. NOAA is keyless but covers the United States only. Either way the line is hidden when the location is not near the coast.',
+            description: 'Adds a high/low tide line to the Astronomy tab for coastal locations. Tide predictions come from NOAA, which is keyless but covers the United States only. The line is hidden when the location is not near the coast.',
         });
 
         const tideSources = [
             {value: 'off',        label: 'Off'},
-            {value: 'weatherapi', label: 'WeatherAPI.com (global, uses WeatherAPI.com key)'},
             {value: 'noaa',       label: 'NOAA (US only, no key)'},
         ];
         const tideSourceRow = new Adw.ComboRow({

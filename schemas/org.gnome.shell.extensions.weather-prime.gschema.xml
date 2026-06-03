@@ -10,7 +10,7 @@
     <key name="airnow-api-key" type="s"><default>''</default><summary>AirNow API key</summary></key>
     <key name="openweather-api-key" type="s"><default>''</default><summary>OpenWeatherMap API key</summary></key>
     <key name="aq-source" type="s"><default>'auto'</default><summary>Air quality source: auto, airnow, openweather, or open-meteo</summary></key>
-    <key name="tide-source" type="s"><default>'off'</default><summary>Tide source: off, weatherapi (global, needs WeatherAPI.com key), or noaa (US only, keyless)</summary></key>
+    <key name="tide-source" type="s"><default>'off'</default><summary>Tide source: off, or noaa (US only, keyless)</summary></key>
     <key name="location-auto" type="b"><default>true</default><summary>Use automatic location via GeoClue</summary></key>
     <key name="location-latitude" type="d"><default>0.0</default><summary>Manual location latitude</summary></key>
     <key name="location-longitude" type="d"><default>0.0</default><summary>Manual location longitude</summary></key>
