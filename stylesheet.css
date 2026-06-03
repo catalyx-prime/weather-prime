@@ -327,6 +327,10 @@
 /* Height is set inline from the panel-size setting; width expands to fill */
 .wp-precip-spark {
     margin-top: 2px;
+    /* Floor the allocation so St never asks Cogl for a 0-width texture
+       (triggers "cogl_texture_2d_new_with_size: assertion 'width >= 1'"
+       during transient zero-width layout passes — can crash the shell). */
+    min-width: 1px;
 }
 
 /* ── Hourly forecast ────────────────────────────────────────────────────── */

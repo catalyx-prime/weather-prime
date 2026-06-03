@@ -1184,6 +1184,11 @@ function precipSparkline(series, height, opts = {}) {
         style_class: 'wp-precip-spark',
         x_expand:    true,
         height,
+        // Never let St allocate this below 1px wide: a 0-width allocation makes
+        // it request a 0-width Cogl texture ("assertion 'width >= 1' failed"),
+        // which floods the paint cycle and can segfault the shell. The repaint
+        // guard below only stops drawing — the texture is allocated before it.
+        min_width:   1,
     });
     const max = series.reduce((m, v) => (v > m ? v : m), 0);
     const fmtLabel = v => (imperial ? v.toFixed(2) : v.toFixed(1));
