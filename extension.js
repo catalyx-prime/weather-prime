@@ -2176,6 +2176,7 @@ class WeatherIndicator extends PanelMenu.Button {
         pill.add_child(this._pillTemp);
         pill.add_child(this._pillAlert);
         this.add_child(pill);
+        this.set_clip_to_allocation(false);
 
         // ── Drop-down panel ───────────────────────────────────────────────
         this._panel = new WeatherPanel();
@@ -2741,6 +2742,7 @@ export default class WeatherPrimeExtension extends Extension {
         if (parent) parent.remove_child(container);
         const index = pos === 'left' ? box.get_n_children() : 0;
         box.insert_child_at_index(container, index);
+        container.set_clip_to_allocation(false);
     }
 
     disable() {

@@ -6,13 +6,8 @@
     spacing: 5px;
 }
 
-/* em, not px, so the pill icon tracks the top bar's height: #panel is 2.2em
-   tall and this icon inherits the same panel font-size, so the icon scales
-   with the bar (bigger font / text-scaling / theme → taller bar → bigger
-   icon). 1.7em fills the usable interior (2.2em minus the .panel-button 3px
-   borders) without clipping. */
 .wp-pill-icon {
-    icon-size: 1.7em;
+    icon-size: 30px;
 }
 
 .wp-pill-temp {
@@ -22,7 +17,7 @@
 }
 
 .wp-pill-alert {
-    icon-size: 1.1em;   /* em like .wp-pill-icon, so the badge tracks the bar too */
+    icon-size: 20px;
     padding-left: 3px;
 }
 
