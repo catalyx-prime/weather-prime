@@ -7,17 +7,17 @@
 }
 
 .wp-pill-icon {
-    icon-size: 30px;
+    icon-size: 90%;
 }
 
 .wp-pill-temp {
-    font-size: 13px;
     font-weight: bold;
     color: white;
+    vertical-align: middle;
 }
 
 .wp-pill-alert {
-    icon-size: 20px;
+    icon-size: 90%;
     padding-left: 3px;
 }
 
