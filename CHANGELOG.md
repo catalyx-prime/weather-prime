@@ -1,11 +1,8 @@
 # Changelog
 
-## v8 — 2026-06-08
-
-- Add a per-day plain-language narrative to the 7-day forecast (NWS, US only, keyless)
-
 ## v7 — 2026-06-05
 
+- Add a per-day plain-language narrative to the 7-day forecast (NWS, US only, keyless)
 - Let pill icons and text scale with the user's theme
 - Fix pill icon clipping by switching to px sizes and trimming SVG viewBox padding
 - Floor precip sparkline width to avoid 0-width Cogl texture allocation
