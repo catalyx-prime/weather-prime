@@ -92,9 +92,11 @@ _fetch(force)
         fetchWeatherAi('/astronomy', …),        // only if weatherai-key set; overlays moon detail
         fetchJSON(buildOpenMeteoPrecip24hUrl()), // last-24h precip series+total, keyless, both providers
         fetchTides(tide-source, …),             // only if tide-source != off; WeatherAPI.com Marine or NOAA CO-OPS
+        fetchNwsNarrative(),                     // NWS plain-language daily narrative, US only, keyless (null elsewhere)
      ])
      then fetchJSON(buildOpenMeteoUrl()) OR fetchWeatherAPI()
      then parseOpenMeteo() / parseWeatherAPI()   // each emits astronomy (sun times always; moon from WeatherAPI)
+     then if NWS narrative present, overwrite each daily[].desc (keyed by date) // US only; provider short label stands elsewhere
      then merge WeatherAI overlay
   → await the USNO fetch and merge it (additive: solarNoon, nextNewMoon, nextFullMoon) into
      parsed.astronomy — runs on both the fresh and rebuilt paths, since USNO has its own schedule
@@ -117,7 +119,11 @@ Parsed data shape:
                                  // snow24hSeries the aligned per-hour snow-depth array (used to tint snow
                                  // hours in the sparkline); precip24hImperial flags inch vs mm for bar labels
   hourly:     [{ time, temp, icon, precip, humidity, wind }, ...],   // next 12 hours
-  daily:      [{ day,  hi,   lo, icon, precip, humidity, wind }, ...], // 7 days
+  daily:      [{ day, date, hi, lo, icon, precip, humidity, wind, desc }, ...], // 7 days.
+                                 // date is 'YYYY-MM-DD' (keys the NWS narrative merge; not displayed).
+                                 // desc is the per-day description shown under each row: the provider's
+                                 // short WMO/condition label, replaced by the richer NWS plain-language
+                                 // narrative for US locations (see fetchNwsNarrative).
   airquality: {
     airnow:      {...} | null,   // US EPA AQI by pollutant when key + nearby station
     openweather: {...} | null,   // global 1–5 AQI + 8 pollutant concentrations
@@ -189,6 +195,6 @@ After editing the schema XML, always recompile: `glib-compile-schemas <path>/sch
 | NOAA CO-OPS (`tidesandcurrents.noaa.gov`) | No | Opt-in tide line (`tide-source=noaa`); US only. Nearest tide-prediction station within ~50 km (else treated as inland and hidden); keyless |
 | RainViewer (`api.rainviewer.com`) | No | Precipitation radar tiles for the Map tab; 10-minute publish cadence |
 | Esri World Imagery | No | Satellite base layer under the radar tiles on the Map tab |
-| NWS (`api.weather.gov`) | No | US weather alerts |
+| NWS (`api.weather.gov`) | No | US weather alerts; also the plain-language daily narrative on the Daily tab (`/points` → forecast URL → daytime `detailedForecast` per day). US only — non-US points 404, so the provider's short WMO/condition label stands |
 | Nominatim / OpenStreetMap | No | Reverse geocoding for auto location display name |
 | Open-Meteo Geocoding | No | City search in Preferences |

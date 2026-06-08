@@ -503,9 +503,11 @@ function parseOpenMeteo(data, aqData, windUnit, pressureUnit, unit) {
 
     const daily = d.time.map((t, i) => ({
         day:      shortDay(t),
+        date:     t,   // 'YYYY-MM-DD'; keys the optional NWS narrative merge
         hi:       fmt(d.temperature_2m_max[i], unit),
         lo:       fmt(d.temperature_2m_min[i], unit),
         icon:     wmo(d.weather_code[i]).icon,
+        desc:     wmo(d.weather_code[i]).desc,
         precip:   `${d.precipitation_probability_max[i] ?? 0}%`,
         humidity: dailyHumidity[i] != null ? `${dailyHumidity[i]}%` : '--',
         wind:     fmtWindShort(d.wind_speed_10m_max?.[i], d.wind_direction_10m_dominant?.[i], windUnit),
@@ -597,9 +599,11 @@ function parseWeatherAPI(data, aqData, windUnit, pressureUnit, unit, dailyWindDi
     // arrow from Open-Meteo (keyed by date) when a map is supplied.
     const daily = data.forecast.forecastday.map(day => ({
         day:      shortDay(day.date),
+        date:     day.date,   // 'YYYY-MM-DD'; keys the optional NWS narrative merge
         hi:       `${Math.round(isF ? day.day.maxtemp_f : day.day.maxtemp_c)}°${isF ? 'F' : 'C'}`,
         lo:       `${Math.round(isF ? day.day.mintemp_f : day.day.mintemp_c)}°${isF ? 'F' : 'C'}`,
         icon:     wApiIcon(day.day.condition.text, 1),
+        desc:     day.day.condition?.text?.trim() || null,
         precip:   `${day.day.daily_chance_of_rain ?? 0}%`,
         humidity: day.day.avghumidity != null ? `${Math.round(day.day.avghumidity)}%` : '--',
         wind:     fmtWindShort(day.day.maxwind_mph, dailyWindDirs?.[day.date] ?? null, windUnit),
@@ -1101,6 +1105,44 @@ async function fetchAlerts(lat, lon) {
     }
 }
 
+// ── NWS plain-language daily narrative (US only, free, no key) ─────────────
+// NWS publishes a multi-sentence "detailedForecast" per day/night period.
+// We expose the daytime narrative of each date as the Daily tab's per-day
+// description for US locations. Two hops: /points → the location's forecast
+// URL, then that forecast. Non-US points 404 (or yield no forecast URL) at
+// /points and we return null, so the providers' short WMO/condition labels
+// stand. Keyed by 'YYYY-MM-DD'; degrades silently on any failure.
+
+async function fetchNwsNarrative(lat, lon) {
+    try {
+        // NWS rejects >4 decimal places on /points with a redirect; round to
+        // skip that round-trip.
+        const point = await fetchJSON(
+            `https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`);
+        const url = point?.properties?.forecast;
+        if (!url) return null;
+        const data = await fetchJSON(url);
+        const periods = data?.properties?.periods ?? [];
+        const byDate = {};
+        for (const p of periods) {
+            // startTime is ISO with the location's UTC offset, so its date
+            // slice is the right local calendar day.
+            const date = (p.startTime ?? '').slice(0, 10);
+            if (!date) continue;
+            // Prefer the daytime narrative; a night period only fills a date
+            // with no daytime entry yet (e.g. a late-evening run whose only
+            // remaining period today is "Tonight").
+            if (p.isDaytime || byDate[date] == null) {
+                const text = p.detailedForecast?.trim();
+                if (text) byDate[date] = text;
+            }
+        }
+        return Object.keys(byDate).length ? byDate : null;
+    } catch {
+        return null;
+    }
+}
+
 // ── Reverse geocoding ─────────────────────────────────────────────────────
 
 async function reverseGeocode(lat, lon) {
@@ -1526,18 +1568,24 @@ class WeatherPanel {
         });
     }
 
-    // Pick the scroll area's max-height for the active tab. Hourly/Map get the
-    // taller cap; Air Quality (long pollutant list) grows unbounded; Astronomy
-    // grows unbounded too, but only when the optional tide line is present so it
-    // doesn't get clipped. Driven from _render so it tracks data refreshes that
-    // add/remove tides while the tab is already open, not just tab switches.
+    // Pick the scroll area's max-height for the active tab. Hourly/Map/Daily get
+    // the taller cap (Daily's per-day description lines make it taller too); Air
+    // Quality (long pollutant list) grows unbounded; Astronomy grows unbounded
+    // too, but only when the optional tide line is present so it doesn't get
+    // clipped. Driven from _render so it tracks data refreshes that add/remove
+    // tides while the tab is already open, not just tab switches.
     _applyScrollHeight() {
         if (!this._scroll) return;
         const tab  = this._tab;
-        const tall = tab === 'hourly' || tab === 'map';
+        const tall = tab === 'hourly' || tab === 'map' || tab === 'daily';
+        // Daily needs a touch more than the shared tall cap: its per-day
+        // description lines push the 7 rows just past it, so the scrollbar
+        // would otherwise appear with only a sliver of overflow.
+        const daily = tab === 'daily';
         const auto = tab === 'airquality' ||
                      (tab === 'astronomy' && !!this._data?.astronomy?.tides?.length);
         this._scroll[tall ? 'add_style_class_name' : 'remove_style_class_name']('wp-scroll-tall');
+        this._scroll[daily ? 'add_style_class_name' : 'remove_style_class_name']('wp-scroll-daily');
         this._scroll[auto ? 'add_style_class_name' : 'remove_style_class_name']('wp-scroll-auto');
     }
 
@@ -1741,7 +1789,12 @@ class WeatherPanel {
         header.add_child(label('Wind',     'wp-day-wind wp-col-header'));
         box.add_child(header);
 
-        this._data.daily.forEach(d => {
+        const days = this._data.daily;
+        days.forEach((d, i) => {
+            // Each day is a row plus its optional description, grouped so the
+            // group's tighter spacing (not the outer wp-daily spacing) governs
+            // the gap between the row and the description below it.
+            const group = vbox('wp-day-group');
             const row = hbox('wp-day-row');
             row.add_child(label(d.day,           'wp-day-name'));
             row.add_child(weatherIcon(d.icon, 'wp-day-icon'));
@@ -1755,7 +1808,26 @@ class WeatherPanel {
             row.add_child(label(d.lo,            'wp-day-lo'));
             row.add_child(label(`💧${d.precip}`, 'wp-day-precip'));
             row.add_child(label(d.wind ?? '--',  'wp-day-wind'));
-            box.add_child(row);
+            group.add_child(row);
+
+            if (d.desc) {
+                const descLbl = label(d.desc, 'wp-day-desc');
+                descLbl.clutter_text.line_wrap      = true;
+                descLbl.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
+                descLbl.clutter_text.ellipsize      = Pango.EllipsizeMode.NONE;
+                // Tighten the leading on wrapped multi-line descriptions (the NWS
+                // daily narrative is the main case). St CSS has no line-height, so
+                // apply a Pango line-height attribute — a factor of the font's
+                // natural leading, so it scales with the panel-size font sizes.
+                const descAttrs = Pango.AttrList.new();
+                descAttrs.insert(Pango.attr_line_height_new(0.78));
+                descLbl.clutter_text.set_attributes(descAttrs);
+                group.add_child(descLbl);
+            }
+            box.add_child(group);
+
+            if (i < days.length - 1)
+                box.add_child(new St.Widget({style_class: 'wp-day-divider'}));
         });
         this._content.add_child(box);
     }
@@ -2481,7 +2553,7 @@ class WeatherIndicator extends PanelMenu.Button {
                 // handles 'off' → null.
                 const tideSource = this._settings.get_string('tide-source');
 
-                const [aqData, alerts, waiAstroRaw, precipRaw, tides] = await Promise.all([
+                const [aqData, alerts, waiAstroRaw, precipRaw, tides, nwsNarrative] = await Promise.all([
                     fetchJSON(buildAirQualityUrl(this._lat, this._lon)).catch(() => null),
                     fetchAlerts(this._lat, this._lon),
                     waiKey
@@ -2494,6 +2566,9 @@ class WeatherIndicator extends PanelMenu.Button {
                     // Open-Meteo regardless of api-provider — see buildOpenMeteoPrecip24hUrl.
                     fetchJSON(buildOpenMeteoPrecip24hUrl(this._lat, this._lon, unit)).catch(() => null),
                     fetchTides(tideSource, this._lat, this._lon),
+                    // NWS plain-language daily narrative; US only, keyless. Null
+                    // outside the US (and on failure), leaving the provider labels.
+                    fetchNwsNarrative(this._lat, this._lon),
                 ]);
 
                 if (provider === 'weatherapi') {
@@ -2528,6 +2603,16 @@ class WeatherIndicator extends PanelMenu.Button {
                     precipSeries ? sumOf(precipSeries.precip) : null, unit);
                 parsed.current.snow24h = fmtSnowTotal(
                     precipSeries ? sumOf(precipSeries.snow) : null, unit);
+
+                // NWS publishes a richer plain-language narrative for US
+                // locations; when present, prefer it over the provider's short
+                // WMO/condition label on the Daily tab (keyed by date). Null
+                // outside the US, so the existing short labels stand.
+                if (nwsNarrative) {
+                    for (const d of parsed.daily) {
+                        if (nwsNarrative[d.date]) d.desc = nwsNarrative[d.date];
+                    }
+                }
 
                 // WeatherAI.io is a dedicated astronomy source; when present its
                 // values take precedence, falling back to whatever the weather

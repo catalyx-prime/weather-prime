@@ -1,5 +1,9 @@
 # Changelog
 
+## v8 — 2026-06-08
+
+- Add a per-day plain-language narrative to the 7-day forecast (NWS, US only, keyless)
+
 ## v7 — 2026-06-05
 
 - Let pill icons and text scale with the user's theme

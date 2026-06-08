@@ -6,7 +6,7 @@ A clean, feature-rich weather extension for GNOME Shell 50+.
 
 - **Current conditions** — temperature, feels-like, humidity, wind speed/direction, gusts, dew point, visibility, cloud cover, and barometric pressure with trend indicator (↑ → ↓); last-24h precipitation total with an hour-by-hour sparkline, plus a separate snowfall depth line when it's snowing
 - **Hourly forecast** — 12-hour outlook with weather icon, temperature, precipitation chance, humidity, and wind
-- **7-day forecast** — daily high/low temperatures, weather icon, precipitation chance, humidity, and wind
+- **7-day forecast** — daily high/low temperatures, weather icon, precipitation chance, humidity, and wind, plus a per-day plain-language narrative for US locations (NWS, keyless; falls back to the provider's short condition label elsewhere)
 - **Air quality** — three sources with automatic fallback:
   - **AirNow** — US EPA AQI (0–500) per pollutant, when a monitoring station is within ~25 mi
   - **OpenWeatherMap** — global 1–5 AQI plus concentrations for all 8 pollutants
@@ -107,6 +107,6 @@ Each data source has its own refresh interval:
 * NOAA CO-OPS — keyless US tide predictions (opt-in; coastal locations only)
 * RainViewer — animated precipitation radar tiles for the Map tab
 * Esri World Imagery — satellite base layer under the radar
-* NWS / weather.gov — US weather alerts
+* NWS / weather.gov — US weather alerts and the plain-language daily forecast narrative
 * Open-Meteo Geocoding — city search
 * Nominatim / OpenStreetMap — reverse geocoding

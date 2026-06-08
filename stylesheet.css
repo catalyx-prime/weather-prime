@@ -226,6 +226,10 @@
     max-height: 480px;
 }
 
+.wp-scroll.wp-scroll-daily {
+    max-height: 528px;
+}
+
 .wp-scroll.wp-scroll-auto {
     max-height: 9999px;
 }
@@ -391,8 +395,16 @@
     spacing: 2px;
 }
 
+.wp-day-group {
+    /* No gap between the metrics row and its description:
+       row padding-bottom (0) + spacing (0) + desc padding-top (0). The
+       description belongs to the day above it, so it sits tight to that row;
+       the breathing room goes around the divider instead (see wp-day-divider). */
+    spacing: 0;
+}
+
 .wp-day-row {
-    padding: 6px 4px;
+    padding: 6px 4px 0 4px;
     border-radius: 6px;
     spacing: 4px;
 }
@@ -448,6 +460,24 @@
     font-size: 11px;
     color: rgba(255, 255, 255, 0.55);
     min-width: 44px;
+}
+
+.wp-day-desc {
+    font-size: 11px;
+    font-style: italic;
+    color: rgba(255, 255, 255, 0.6);
+    padding: 0 4px 2px 4px;
+}
+
+.wp-day-divider {
+    height: 1px;
+    /* Roomy, balanced gap on both sides of the line. Top margin is larger than
+       bottom to offset the next row's 6px top padding, so the line sits visually
+       centred between the description above and the day name below
+       (~16px each: above = desc pad-bottom 2 + wp-daily spacing 2 + 12;
+       below = 8 + 2 + row pad-top 6). */
+    margin: 12px 4px 8px 4px;
+    background-color: rgba(255, 255, 255, 0.1);
 }
 
 .wp-day-header-row {
@@ -746,6 +776,14 @@
     border-bottom-color: rgba(0, 0, 0, 0.1);
 }
 
+.wp-panel.wp-light .wp-day-desc {
+    color: rgba(0, 0, 0, 0.55);
+}
+
+.wp-panel.wp-light .wp-day-divider {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
 .wp-panel.wp-light .wp-astro-phase-name {
     color: rgba(0, 0, 0, 0.85);
 }
@@ -867,6 +905,10 @@
     max-height: 600px;
 }
 
+.wp-panel.wp-medium .wp-scroll.wp-scroll-daily {
+    max-height: 660px;
+}
+
 .wp-panel.wp-medium .wp-scroll.wp-scroll-auto {
     max-height: 9999px;
 }
@@ -980,13 +1022,22 @@
 }
 
 .wp-panel.wp-medium .wp-daily {
-    spacing: 3px;
+    spacing: 1px;
+}
+
+.wp-panel.wp-medium .wp-day-group {
+    spacing: 0;
 }
 
 .wp-panel.wp-medium .wp-day-row {
-    padding: 8px 5px;
+    padding: 3px 5px 0 5px;
     border-radius: 8px;
     spacing: 5px;
+}
+
+.wp-panel.wp-medium .wp-day-divider {
+    /* ~10px each side: above = desc pad-bottom 2 + spacing 1 + 8; below = 5 + 1 + row pad-top 3. */
+    margin: 8px 5px 5px 5px;
 }
 
 .wp-panel.wp-medium .wp-day-name {
@@ -1026,6 +1077,14 @@
 .wp-panel.wp-medium .wp-day-wind {
     font-size: 14px;
     min-width: 55px;
+}
+
+/* The per-day narrative is secondary detail, so it doesn't scale all the way
+   up with the rest of the medium tier — a smaller font both shortens each
+   line and lets the text reflow onto fewer lines, roughly halving the tab's
+   vertical footprint. */
+.wp-panel.wp-medium .wp-day-desc {
+    font-size: 14px;
 }
 
 .wp-panel.wp-medium .wp-day-header-row {
@@ -1199,6 +1258,10 @@
     max-height: 680px;
 }
 
+.wp-panel.wp-large .wp-scroll.wp-scroll-daily {
+    max-height: 748px;
+}
+
 .wp-panel.wp-large .wp-scroll.wp-scroll-auto {
     max-height: 9999px;
 }
@@ -1315,10 +1378,21 @@
     spacing: 3px;
 }
 
+.wp-panel.wp-large .wp-day-group {
+    /* Tight gap: row padding-bottom (0) + spacing (0) + desc padding-top (0). */
+    spacing: 0;
+}
+
 .wp-panel.wp-large .wp-day-row {
-    padding: 9px 6px;
+    padding: 9px 6px 0 6px;
     border-radius: 9px;
     spacing: 6px;
+}
+
+.wp-panel.wp-large .wp-day-divider {
+    /* ~23px each side, scaled from base: above = desc pad-bottom 2 + spacing 3 + 18;
+       below = 12 + 3 + row pad-top 9. */
+    margin: 18px 6px 12px 6px;
 }
 
 .wp-panel.wp-large .wp-day-name {
@@ -1358,6 +1432,10 @@
 .wp-panel.wp-large .wp-day-wind {
     font-size: 17px;
     min-width: 66px;
+}
+
+.wp-panel.wp-large .wp-day-desc {
+    font-size: 17px;
 }
 
 .wp-panel.wp-large .wp-day-header-row {
