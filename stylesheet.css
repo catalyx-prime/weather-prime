@@ -21,6 +21,13 @@
     padding-left: 3px;
 }
 
+/* When the detail panel is pinned to a fixed screen location (detail-panel-
+   position != default) the arrow no longer points at the pill, so flatten it
+   to zero rise. Applied to the BoxPointer itself by _applyDetailPanelPosition. */
+.wp-detail-pinned {
+    -arrow-rise: 0px;
+}
+
 /* ── Drop-down panel ────────────────────────────────────────────────────── */
 
 .wp-panel {

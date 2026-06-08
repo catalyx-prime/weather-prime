@@ -30,6 +30,7 @@
     <key name="map-fetch-interval" type="i"><default>10</default><summary>Radar overlay fetch interval in minutes (minimum 10, the RainViewer provider's refresh cadence)</summary></key>
     <key name="panel-position" type="s"><default>'right'</default><summary>Panel position: left, center, or right</summary></key>
     <key name="panel-size" type="s"><default>'original'</default><summary>Drop-down panel size: original, medium (1.25x), or large (1.5x)</summary></key>
+    <key name="detail-panel-position" type="s"><default>'default'</default><summary>Where the detail panel appears: default (drop down from the pill), or pinned to a screen location — top-left, top-center, top-right, middle-left, middle-center, middle-right, bottom-left, bottom-center, bottom-right</summary></key>
     <key name="map-website" type="s"><default>'windy'</default><summary>Interactive map website to open on map tap</summary></key>
   </schema>
 </schemalist>

@@ -16,7 +16,7 @@ A clean, feature-rich weather extension for GNOME Shell 50+.
 - **Weather alerts** — active NWS alerts with full alert text (US only, no key required)
 - **Dark and light mode** — auto-follows system theme or can be set manually
 - **Flexible units** — Fahrenheit/Celsius, mph/km/h/m/s, hPa/inHg/mmHg
-- **Panel position and size** — place the pill on the left, center, or right of the top bar; choose original, medium (1.25×), or large (1.5×) drop-down panel
+- **Panel position and size** — place the pill on the left, center, or right of the top bar; choose original, medium (1.25×), or large (1.5×) drop-down panel; optionally pin the drop-down to any corner, edge, or center of the screen instead of letting it hang from the pill
 - **Two weather providers** — Open-Meteo (free, no key) or WeatherAPI.com (free key required)
 - **Auto or manual location** — uses GeoClue2 for automatic detection (Preferences updates live when the location changes), or set any city manually
 
@@ -80,6 +80,7 @@ The **Air quality source** dropdown chooses which provider runs when its key is 
 * **Color scheme** — Auto (follows system), Dark, or Light
 * **Panel position** — Left, Center, or Right
 * **Panel size** — Original, Medium (1.25×), or Large (1.5×)
+* **Detail panel position** — Default (drops down from the pill) or pinned to a fixed screen location (top/middle/bottom × left/center/right)
 * **Map tab destination** — pick which external site (Windy, Zoom Earth, Ventusky, RainViewer, Weather.com, Wunderground, or NWS Radar) opens when you click the Map tab
 
 ### API Call Frequency

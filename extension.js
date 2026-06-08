@@ -2810,6 +2810,82 @@ export default class WeatherPrimeExtension extends Extension {
         this._reposition();
         this._posChangedId = this._settings.connect('changed::panel-position',
             () => this._reposition());
+        this._installDetailPanelOverride();
+        this._applyDetailPanelPosition();
+        this._detailPosChangedId = this._settings.connect('changed::detail-panel-position',
+            () => this._applyDetailPanelPosition());
+    }
+
+    // Pin the detail panel (the drop-down menu's BoxPointer) to a fixed screen
+    // location, or leave the default pill-anchored drop-down behaviour intact.
+    //
+    // The BoxPointer recomputes its own origin on every allocation via
+    // _reposition(allocationBox), which mutates the passed box's origin. We
+    // install a permanent wrapper around that method: when detail-panel-position
+    // is 'default' it defers to the stock implementation; otherwise it overrides
+    // the origin with our grid-derived screen coordinates. The wrapper is cheap
+    // and reads the setting fresh each call, so it never needs reinstalling.
+    _installDetailPanelOverride() {
+        const bp = this._indicator?.menu?._boxPointer;
+        if (!bp || this._origReposition) return;
+        this._origReposition = bp._reposition;
+        bp._reposition = allocationBox => {
+            const pos = this._settings.get_string('detail-panel-position');
+            if (pos === 'default')
+                this._origReposition.call(bp, allocationBox);
+            else
+                this._repositionDetailPanel(bp, pos, allocationBox);
+        };
+    }
+
+    // Toggle the arrow-flattening style class and force a relayout so a position
+    // change takes effect immediately (including while the panel is open).
+    _applyDetailPanelPosition() {
+        const bp = this._indicator?.menu?._boxPointer;
+        if (!bp) return;
+        const pinned = this._settings.get_string('detail-panel-position') !== 'default';
+        if (pinned) bp.add_style_class_name('wp-detail-pinned');
+        else        bp.remove_style_class_name('wp-detail-pinned');
+        bp.queue_relayout();
+    }
+
+    // Compute the BoxPointer's origin for a pinned position. `pos` is a
+    // '<row>-<col>' key over a 3×3 grid of the work area (the monitor minus the
+    // top bar) for the screen the pill lives on. Top/middle/bottom align the
+    // panel's top/centre/bottom to the area's; left/center/right its left/
+    // centre/right edge. Mirrors the stock _reposition's stage→parent transform.
+    _repositionDetailPanel(bp, pos, allocationBox) {
+        const source = bp._sourceActor;
+        if (!source) return;
+        const monitorIndex = Main.layoutManager.findIndexForActor(source);
+        const wa = Main.layoutManager.getWorkAreaForMonitor(monitorIndex);
+
+        // _updateFlip() (called right after us in vfunc_allocate) reads these,
+        // so keep them populated even though our placement ignores the arrow.
+        bp._sourceExtents = source.get_transformed_extents();
+        bp._workArea = wa;
+
+        const [, , natWidth, natHeight] = bp.get_preferred_size();
+        const [row, col] = pos.split('-');
+
+        let resX = col === 'left'   ? wa.x
+                 : col === 'right'  ? wa.x + wa.width - natWidth
+                 :                    wa.x + (wa.width - natWidth) / 2;
+        let resY = row === 'top'    ? wa.y
+                 : row === 'bottom' ? wa.y + wa.height - natHeight
+                 :                    wa.y + (wa.height - natHeight) / 2;
+
+        // Keep the panel on the work area even if it is larger than expected.
+        resX = Math.max(wa.x, Math.min(resX, wa.x + wa.width - natWidth));
+        resY = Math.max(wa.y, Math.min(resY, wa.y + wa.height - natHeight));
+
+        let parent = bp.get_parent();
+        let success, x, y;
+        while (!success) {
+            [success, x, y] = parent.transform_stage_point(resX, resY);
+            parent = parent.get_parent();
+        }
+        allocationBox.set_origin(Math.floor(x), Math.floor(y));
     }
 
     // Move the (already-registered) indicator's container into the box for the
@@ -2828,6 +2904,26 @@ export default class WeatherPrimeExtension extends Extension {
         const index = pos === 'left' ? box.get_n_children() : 0;
         box.insert_child_at_index(container, index);
         container.set_clip_to_allocation(false);
+        this._alignMenu(pos);
+    }
+
+    // Line up the drop-down panel's matching edge with the pill's, per the
+    // panel-position. The BoxPointer positions the panel as
+    //   resX = sourceX - (halfMargin + (panelWidth - margin) * arrowAlignment)
+    // where sourceX is the point on the pill chosen by the source alignment.
+    // Picking the same fraction for both — point at the pill's left edge and
+    // sit the panel's left edge there (0.0), centre on centre (0.5), or right
+    // edge on right edge (1.0) — makes the corresponding edges coincide.
+    // PopupMenu re-reads _arrowAlignment on every open(); setSourceAlignment
+    // updates the BoxPointer immediately. Default was arrowAlignment 0.0 /
+    // source 0.5 (left-edge-to-pill-centre), which only looked right on the
+    // left, so the panel overhung the bar edge for center/right pills.
+    _alignMenu(pos) {
+        const menu = this._indicator?.menu;
+        if (!menu) return;
+        const frac = pos === 'left' ? 0.0 : pos === 'center' ? 0.5 : 1.0;
+        menu._arrowAlignment = frac;
+        menu.setSourceAlignment(frac);
     }
 
     disable() {
@@ -2835,6 +2931,17 @@ export default class WeatherPrimeExtension extends Extension {
             this._settings?.disconnect(this._posChangedId);
             this._posChangedId = null;
         }
+        if (this._detailPosChangedId) {
+            this._settings?.disconnect(this._detailPosChangedId);
+            this._detailPosChangedId = null;
+        }
+        // Restore the stock BoxPointer._reposition we wrapped in enable().
+        const bp = this._indicator?.menu?._boxPointer;
+        if (bp && this._origReposition) {
+            bp._reposition = this._origReposition;
+            bp.remove_style_class_name('wp-detail-pinned');
+        }
+        this._origReposition = null;
         _session = null;
         this._indicator?.destroy();
         this._indicator = null;

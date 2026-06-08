@@ -398,6 +398,18 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
             {label: 'Medium (1.25×)', value: 'medium'},
             {label: 'Large (1.5×)',  value: 'large'},
         ]));
+        appearanceGroup.add(makeComboRow('Detail panel position', 'Where the detail panel appears when you click the pill', 'detail-panel-position', [
+            {label: 'Default',        value: 'default'},
+            {label: 'Top left',       value: 'top-left'},
+            {label: 'Top center',     value: 'top-center'},
+            {label: 'Top right',      value: 'top-right'},
+            {label: 'Middle left',    value: 'middle-left'},
+            {label: 'Middle center',  value: 'middle-center'},
+            {label: 'Middle right',   value: 'middle-right'},
+            {label: 'Bottom left',    value: 'bottom-left'},
+            {label: 'Bottom center',  value: 'bottom-center'},
+            {label: 'Bottom right',   value: 'bottom-right'},
+        ]));
         page.add(appearanceGroup);
 
         const mapGroup = new Adw.PreferencesGroup({

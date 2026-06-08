@@ -2,6 +2,8 @@
 
 ## v7 — 2026-06-05
 
+- Add a detail-panel-position setting to pin the drop-down to any screen cell (top/middle/bottom × left/center/right) instead of dropping from the pill
+- Align the drop-down's edge with the pill so center/right pills no longer overhang the top bar
 - Add a per-day plain-language narrative to the 7-day forecast (NWS, US only, keyless)
 - Let pill icons and text scale with the user's theme
 - Fix pill icon clipping by switching to px sizes and trimming SVG viewBox padding
