@@ -416,6 +416,12 @@
     spacing: 4px;
 }
 
+/* Descriptions off: no desc/divider follows the row, so use the hourly tab's
+   symmetric padding instead of the desc-anchored 0-bottom padding. */
+.wp-day-row-compact {
+    padding: 5px 4px;
+}
+
 .wp-day-row:hover {
     background-color: rgba(255, 255, 255, 0.06);
 }
@@ -1042,6 +1048,10 @@
     spacing: 5px;
 }
 
+.wp-panel.wp-medium .wp-day-row-compact {
+    padding: 6px 5px;
+}
+
 .wp-panel.wp-medium .wp-day-divider {
     /* ~10px each side: above = desc pad-bottom 2 + spacing 1 + 8; below = 5 + 1 + row pad-top 3. */
     margin: 8px 5px 5px 5px;
@@ -1394,6 +1404,10 @@
     padding: 9px 6px 0 6px;
     border-radius: 9px;
     spacing: 6px;
+}
+
+.wp-panel.wp-large .wp-day-row-compact {
+    padding: 8px 6px;
 }
 
 .wp-panel.wp-large .wp-day-divider {

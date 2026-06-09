@@ -177,6 +177,7 @@ Defined in `schemas/org.gnome.shell.extensions.weather-prime.gschema.xml`. Key o
 | `panel-position` | string | `right` | `left`, `center`, or `right` |
 | `panel-size` | string | `original` | `original`, `medium` (1.25×), or `large` (1.5× drop-down content) |
 | `detail-panel-position` | string | `default` | Where the drop-down detail panel appears. `default` keeps the stock pill-anchored BoxPointer; the nine `<row>-<col>` values (`top`/`middle`/`bottom` × `left`/`center`/`right`) pin it to that cell of the work area (monitor minus top bar) on the pill's screen, arrow flattened. Implemented by wrapping `BoxPointer._reposition` (see `_repositionDetailPanel`) |
+| `daily-descriptions` | bool | `true` | Show the per-day written description (NWS narrative / provider label) under each row of the 7-day forecast. When off, `WeatherPanel._renderDaily` skips the `wp-day-desc` label |
 | `map-website` | string | `windy` | Which external site the Map tab opens on click: `windy`, `zoom-earth`, `ventusky`, `rainviewer`, `weather-com`, `wunderground`, `nws` |
 
 After editing the schema XML, always recompile: `glib-compile-schemas <path>/schemas/`.

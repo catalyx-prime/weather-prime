@@ -410,6 +410,15 @@ export default class WeatherPrimePreferences extends ExtensionPreferences {
             {label: 'Bottom center',  value: 'bottom-center'},
             {label: 'Bottom right',   value: 'bottom-right'},
         ]));
+
+        const dailyDescRow = new Adw.SwitchRow({
+            title:    'Daily descriptions',
+            subtitle: 'Show the written description under each day in the 7-day forecast',
+        });
+        settings.bind('daily-descriptions', dailyDescRow, 'active',
+                      Gio.SettingsBindFlags.DEFAULT);
+        appearanceGroup.add(dailyDescRow);
+
         page.add(appearanceGroup);
 
         const mapGroup = new Adw.PreferencesGroup({

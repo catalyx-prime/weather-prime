@@ -1535,6 +1535,11 @@ class WeatherPanel {
         if (this._tab === 'map') this._render();
     }
 
+    setShowDailyDesc(show) {
+        this._showDailyDesc = show;
+        if (this._tab === 'daily') this._render();
+    }
+
     _renderAlertsBanner(alerts) {
         this._alertsBanner.destroy_all_children();
         if (!alerts.length) { this._alertsBanner.hide(); return; }
@@ -1795,7 +1800,12 @@ class WeatherPanel {
             // group's tighter spacing (not the outer wp-daily spacing) governs
             // the gap between the row and the description below it.
             const group = vbox('wp-day-group');
-            const row = hbox('wp-day-row');
+            // With descriptions off there is no desc label or divider to provide
+            // the gap below each row, so switch to symmetric padding that matches
+            // the hourly tab's rows instead of the desc-anchored 0-bottom padding.
+            const row = hbox(this._showDailyDesc !== false
+                ? 'wp-day-row'
+                : 'wp-day-row wp-day-row-compact');
             row.add_child(label(d.day,           'wp-day-name'));
             row.add_child(weatherIcon(d.icon, 'wp-day-icon'));
             row.add_child(spacer());
@@ -1810,7 +1820,7 @@ class WeatherPanel {
             row.add_child(label(d.wind ?? '--',  'wp-day-wind'));
             group.add_child(row);
 
-            if (d.desc) {
+            if (d.desc && this._showDailyDesc !== false) {
                 const descLbl = label(d.desc, 'wp-day-desc');
                 descLbl.clutter_text.line_wrap      = true;
                 descLbl.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
@@ -1826,7 +1836,7 @@ class WeatherPanel {
             }
             box.add_child(group);
 
-            if (i < days.length - 1)
+            if (i < days.length - 1 && this._showDailyDesc !== false)
                 box.add_child(new St.Widget({style_class: 'wp-day-divider'}));
         });
         this._content.add_child(box);
@@ -2256,6 +2266,7 @@ class WeatherIndicator extends PanelMenu.Button {
         this._panel.onSettings(() => this._ext.openPreferences());
         this._panel.onMapRequest(() => this._ensureMap());
         this._panel.setMapWebsite(this._settings.get_string('map-website'));
+        this._panel.setShowDailyDesc(this._settings.get_boolean('daily-descriptions'));
 
         const section = new PopupMenu.PopupMenuSection();
         section.actor.add_child(this._panel.actor);
@@ -2280,6 +2291,10 @@ class WeatherIndicator extends PanelMenu.Button {
             // rather than dropping caches and re-downloading everything.
             if (key === 'map-website') {
                 this._panel.setMapWebsite(this._settings.get_string('map-website'));
+                return;
+            }
+            if (key === 'daily-descriptions') {
+                this._panel.setShowDailyDesc(this._settings.get_boolean('daily-descriptions'));
                 return;
             }
             // panel-position is owned by the extension-level handler, which
