@@ -114,11 +114,23 @@ const AQ_COLORS = {
 
 const PARAM_LABELS = {
     'O3':    'Ozone',
+    'OZONE': 'Ozone',   // AirNow's ziplatlong endpoint spells ozone out
     'PM2.5': 'PM 2.5',
     'PM10':  'PM 10',
     'CO':    'Carbon Monoxide',
     'SO2':   'Sulfur Dioxide',
     'NO2':   'Nitrogen Dioxide',
+};
+
+// AirNow's current endpoint returns only the AQI category *name*, not its
+// number; map back to the 1–6 index AQ_COLORS is keyed by.
+const AQ_CATEGORY_NUM = {
+    'Good':                            1,
+    'Moderate':                        2,
+    'Unhealthy for Sensitive Groups':  3,
+    'Unhealthy':                       4,
+    'Very Unhealthy':                  5,
+    'Hazardous':                       6,
 };
 
 function windDir(deg) {
@@ -829,20 +841,21 @@ async function fetchAirNow(lat, lon, key) {
             format:    'application/json',
             latitude:  lat.toFixed(4),
             longitude: lon.toFixed(4),
-            distance:  25,
             API_KEY:   key,
         });
+        // ziplatlong replaces the latLong/current endpoint retiring 2026-09-30.
+        // Its lookup boundary defaults to 25 mi (the old explicit distance=25).
         const data = await fetchJSON(
-            `https://www.airnowapi.org/aq/observation/latLong/current/?${params}`
+            `https://www.airnowapi.org/aq/observation/current/ziplatlong/?${params}`
         );
         if (!Array.isArray(data) || data.length === 0) return null;
         const result = {};
         data.forEach(obs => {
-            if (obs.AQI >= 0) {
-                result[obs.ParameterName] = {
-                    aqi:         obs.AQI,
-                    category:    obs.Category.Name,
-                    categoryNum: obs.Category.Number,
+            if (obs.nowcastAQI >= 0) {
+                result[obs.parameterName] = {
+                    aqi:         obs.nowcastAQI,
+                    category:    obs.aqiCategoryName,
+                    categoryNum: AQ_CATEGORY_NUM[obs.aqiCategoryName],
                 };
             }
         });
