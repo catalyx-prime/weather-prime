@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.5.0 — 2026-06-20 (EGO v7)
+
+- Harden startup and detail-panel reposition against shell-startup races
+- Migrate AirNow air quality to the ziplatlong endpoint
+
 ## v7 — 2026-06-05
 
 - Add a detail-panel-position setting to pin the drop-down to any screen cell (top/middle/bottom × left/center/right) instead of dropping from the pill
