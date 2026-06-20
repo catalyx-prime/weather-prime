@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.5.1 — 2026-06-20 (EGO v8)
+
+- Add a homepage URL to metadata so extensions.gnome.org links back to the GitHub repo
+
 ## v1.5.0 — 2026-06-20 (EGO v7)
 
 - Harden startup and detail-panel reposition against shell-startup races
