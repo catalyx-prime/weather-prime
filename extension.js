@@ -2346,8 +2346,26 @@ class WeatherIndicator extends PanelMenu.Button {
         });
 
         this._updateTheme();
-        this._fetch(true);
-        this._startTimer();
+        // At session startup enable() runs while the shell is still building
+        // itself — monitors, work areas and the panel layout aren't settled and
+        // the shell's GeoClue agent may not be registered yet. Kicking off the
+        // network fetch + render inside that window races the shell's own
+        // startup and can crash it. Defer the first fetch (and the periodic
+        // timer) until startup-complete; when we're enabled manually later
+        // _startingUp is already false, so this runs immediately.
+        this._startupId = 0;
+        if (Main.layoutManager._startingUp) {
+            this._startupId = Main.layoutManager.connect('startup-complete', () => {
+                Main.layoutManager.disconnect(this._startupId);
+                this._startupId = 0;
+                if (this._destroyed) return;
+                this._fetch(true);
+                this._startTimer();
+            });
+        } else {
+            this._fetch(true);
+            this._startTimer();
+        }
     }
 
     _updateTheme() {
@@ -2800,6 +2818,10 @@ class WeatherIndicator extends PanelMenu.Button {
         // lock/session-mode flip disables us) bails at its next await instead of
         // touching now-finalized widgets.
         this._destroyed = true;
+        if (this._startupId) {
+            Main.layoutManager.disconnect(this._startupId);
+            this._startupId = 0;
+        }
         if (this._menuSignalId) {
             this.menu.disconnect(this._menuSignalId);
             this._menuSignalId = null;
@@ -2884,9 +2906,17 @@ export default class WeatherPrimeExtension extends Extension {
     // centre/right edge. Mirrors the stock _reposition's stage→parent transform.
     _repositionDetailPanel(bp, pos, allocationBox) {
         const source = bp._sourceActor;
-        if (!source) return;
+        if (!source) { this._origReposition.call(bp, allocationBox); return; }
+        // findIndexForActor returns -1 before the pill is placed on a monitor
+        // (e.g. during shell startup), and getWorkAreaForMonitor(-1) yields no
+        // work area. Reading wa.x off null would throw — and this runs inside
+        // BoxPointer.vfunc_allocate, where a thrown exception or a NaN origin
+        // crashes gnome-shell. Fall back to stock pill-anchored placement until
+        // the geometry is valid.
         const monitorIndex = Main.layoutManager.findIndexForActor(source);
-        const wa = Main.layoutManager.getWorkAreaForMonitor(monitorIndex);
+        const wa = monitorIndex < 0
+            ? null : Main.layoutManager.getWorkAreaForMonitor(monitorIndex);
+        if (!wa) { this._origReposition.call(bp, allocationBox); return; }
 
         // _updateFlip() (called right after us in vfunc_allocate) reads these,
         // so keep them populated even though our placement ignores the arrow.
@@ -2907,12 +2937,18 @@ export default class WeatherPrimeExtension extends Extension {
         resX = Math.max(wa.x, Math.min(resX, wa.x + wa.width - natWidth));
         resY = Math.max(wa.y, Math.min(resY, wa.y + wa.height - natHeight));
 
+        // Walk up to the stage, transforming the work-area point into the
+        // BoxPointer parent's coordinates. Guard the chain end: if an ancestor
+        // isn't allocated yet the transform never succeeds and parent reaches
+        // null — dereferencing it (or feeding a NaN origin to set_origin below)
+        // would crash the shell from inside vfunc_allocate. Fall back to stock.
         let parent = bp.get_parent();
-        let success, x, y;
-        while (!success) {
+        let success = false, x, y;
+        while (!success && parent) {
             [success, x, y] = parent.transform_stage_point(resX, resY);
             parent = parent.get_parent();
         }
+        if (!success) { this._origReposition.call(bp, allocationBox); return; }
         allocationBox.set_origin(Math.floor(x), Math.floor(y));
     }
 
